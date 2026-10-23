@@ -136,21 +136,21 @@ public class TrackCacheService implements AutoCloseable {
                 log.debug("Skipping caching error response for: '{}'", identifier);
                 return;
             }
-            if ("empty".equalsIgnoreCase(loadType) && !config.isCacheEmpty()) {
+            if ("empty".equalsIgnoreCase(loadType) && !config.getCache().isEmpty()) {
                 log.debug("Skipping caching empty response for: '{}'", identifier);
                 return;
             }
 
-            if ("search".equalsIgnoreCase(loadType) && !config.isCacheSearches()) {
+            if ("search".equalsIgnoreCase(loadType) && !config.getCache().isSearches()) {
                 log.debug("Skipping caching search response for: '{}'", identifier);
-                if (config.isCacheIndividualSearchTracks()) {
+                if (config.getCache().isIndividualSearchTracks()) {
                     decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
                 }
                 return;
             }
-            if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
+            if ("playlist".equalsIgnoreCase(loadType) && !config.getCache().isPlaylists()) {
                 log.debug("Skipping caching full playlist response for: '{}'", identifier);
-                if (config.isCacheIndividualPlaylistTracks()) {
+                if (config.getCache().isIndividualPlaylistTracks()) {
                     decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
                 }
                 return;
@@ -177,9 +177,9 @@ public class TrackCacheService implements AutoCloseable {
             log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
                     identifier, loadType, fullKey, ttlDisplay);
 
-            if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
+            if ("playlist".equalsIgnoreCase(loadType) && config.getCache().isIndividualPlaylistTracks()) {
                 decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
-            } else if ("search".equalsIgnoreCase(loadType) && config.isCacheIndividualSearchTracks()) {
+            } else if ("search".equalsIgnoreCase(loadType) && config.getCache().isIndividualSearchTracks()) {
                 decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
             }
         } catch (Exception e) {

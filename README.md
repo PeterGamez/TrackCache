@@ -146,11 +146,12 @@ plugins:
         playlist-hours: 24      # TTL for full playlists in hours (default: 24 = 1 day)
         search-hours: 2         # TTL for search queries in hours (default: 2 hours)
 
-    cache-playlists: true                   # Cache full playlist responses
-    cache-individual-playlist-tracks: true  # Decompose and cache individual tracks from playlists
-    cache-searches: true                    # Cache search query results
-    cache-individual-search-tracks: true    # Decompose and cache individual tracks from search results
-    cache-empty: false                      # Do not cache empty/404 results
+    cache:
+      playlists: true                   # Cache full playlist responses
+      individual-playlist-tracks: true  # Decompose and cache individual tracks from playlists
+      searches: true                    # Cache search query results
+      individual-search-tracks: true    # Decompose and cache individual tracks from search results
+      empty: false                      # Do not cache empty/404 results
 ```
 
 ### 🔧 Configuration Options Breakdown
@@ -170,11 +171,11 @@ plugins:
 | `redis.ttl.track-hours` | Long | `72` | Cache expiration duration for individual tracks in hours (default: 72 = 3 days). |
 | `redis.ttl.playlist-hours` | Long | `24` | Cache expiration duration for full playlist payloads in hours (default: 24 = 1 day). |
 | `redis.ttl.search-hours` | Long | `2` | Cache expiration duration for search query results in hours (default: 2 hours). |
-| `cache-playlists` | Boolean | `true` | Caches the full playlist payload (`loadType: playlist`) under the playlist's canonical key. |
-| `cache-individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
-| `cache-searches` | Boolean | `true` | Caches search queries (e.g., `ytsearch:...`, `scsearch:...`). |
-| `cache-individual-search-tracks` | Boolean | `true` | Decomposes tracks within search results and pre-warms cache for each individual track. |
-| `cache-empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
+| `cache.playlists` | Boolean | `true` | Caches the full playlist payload (`loadType: playlist`) under the playlist's canonical key. |
+| `cache.individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
+| `cache.searches` | Boolean | `true` | Caches search queries (e.g., `ytsearch:...`, `scsearch:...`). |
+| `cache.individual-search-tracks` | Boolean | `true` | Decomposes tracks within search results and pre-warms cache for each individual track. |
+| `cache.empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
 
 #### 💡 Deep Dive: How the Caching Flags Differ
 

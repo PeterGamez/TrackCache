@@ -8,12 +8,7 @@ public class TrackCacheConfig {
 
     private boolean enabled = true;
     private RedisConfig redis = new RedisConfig();
-
-    private boolean cachePlaylists = true;
-    private boolean cacheIndividualPlaylistTracks = true;
-    private boolean cacheSearches = true;
-    private boolean cacheIndividualSearchTracks = true;
-    private boolean cacheEmpty = false;
+    private CacheConfig cache = new CacheConfig();
 
     public static class RedisConfig {
         private String host = "localhost";
@@ -27,7 +22,7 @@ public class TrackCacheConfig {
         public static class TtlConfig {
             private boolean enabled = true;
             private long trackHours = 72; // Default: 72 hours (3 days)
-            private long playlistHours = 24; // Default: 24 hours
+            private long playlistHours = 24; // Default: 24 hours (1 day)
             private long searchHours = 2; // Default: 2 hours
 
             public boolean isEnabled() {
@@ -132,6 +127,54 @@ public class TrackCacheConfig {
         }
     }
 
+    public static class CacheConfig {
+        private boolean playlists = true;
+        private boolean individualPlaylistTracks = true;
+        private boolean searches = true;
+        private boolean individualSearchTracks = true;
+        private boolean empty = false;
+
+        public boolean isPlaylists() {
+            return playlists;
+        }
+
+        public void setPlaylists(boolean playlists) {
+            this.playlists = playlists;
+        }
+
+        public boolean isIndividualPlaylistTracks() {
+            return individualPlaylistTracks;
+        }
+
+        public void setIndividualPlaylistTracks(boolean individualPlaylistTracks) {
+            this.individualPlaylistTracks = individualPlaylistTracks;
+        }
+
+        public boolean isSearches() {
+            return searches;
+        }
+
+        public void setSearches(boolean searches) {
+            this.searches = searches;
+        }
+
+        public boolean isIndividualSearchTracks() {
+            return individualSearchTracks;
+        }
+
+        public void setIndividualSearchTracks(boolean individualSearchTracks) {
+            this.individualSearchTracks = individualSearchTracks;
+        }
+
+        public boolean isEmpty() {
+            return empty;
+        }
+
+        public void setEmpty(boolean empty) {
+            this.empty = empty;
+        }
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -148,43 +191,11 @@ public class TrackCacheConfig {
         this.redis = redis;
     }
 
-    public boolean isCachePlaylists() {
-        return cachePlaylists;
+    public CacheConfig getCache() {
+        return cache;
     }
 
-    public void setCachePlaylists(boolean cachePlaylists) {
-        this.cachePlaylists = cachePlaylists;
-    }
-
-    public boolean isCacheIndividualPlaylistTracks() {
-        return cacheIndividualPlaylistTracks;
-    }
-
-    public void setCacheIndividualPlaylistTracks(boolean cacheIndividualPlaylistTracks) {
-        this.cacheIndividualPlaylistTracks = cacheIndividualPlaylistTracks;
-    }
-
-    public boolean isCacheSearches() {
-        return cacheSearches;
-    }
-
-    public void setCacheSearches(boolean cacheSearches) {
-        this.cacheSearches = cacheSearches;
-    }
-
-    public boolean isCacheIndividualSearchTracks() {
-        return cacheIndividualSearchTracks;
-    }
-
-    public void setCacheIndividualSearchTracks(boolean cacheIndividualSearchTracks) {
-        this.cacheIndividualSearchTracks = cacheIndividualSearchTracks;
-    }
-
-    public boolean isCacheEmpty() {
-        return cacheEmpty;
-    }
-
-    public void setCacheEmpty(boolean cacheEmpty) {
-        this.cacheEmpty = cacheEmpty;
+    public void setCache(CacheConfig cache) {
+        this.cache = cache;
     }
 }

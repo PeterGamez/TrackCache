@@ -14,22 +14,19 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
     private static final Logger log = LoggerFactory.getLogger(TrackCacheRestInterceptor.class);
 
     public static final String CACHE_IDENTIFIER_ATTR = "trackcache.identifier";
-    private static final String LOADTRACKS_PATH_V4 = "/v4/loadtracks";
-    private static final String LOADTRACKS_PATH_V3 = "/loadtracks";
+    private static final String LOADTRACKS_PATH = "/v4/loadtracks";
 
     private final TrackCacheService trackCacheService;
-    private final UrlNormalizer normalizer;
 
-    public TrackCacheRestInterceptor(TrackCacheService trackCacheService, UrlNormalizer normalizer) {
+    public TrackCacheRestInterceptor(TrackCacheService trackCacheService) {
         this.trackCacheService = trackCacheService;
-        this.normalizer = normalizer;
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String uri = request.getRequestURI();
 
-        if (!uri.endsWith(LOADTRACKS_PATH_V4) && !uri.endsWith(LOADTRACKS_PATH_V3)) {
+        if (!uri.endsWith(LOADTRACKS_PATH)) {
             return true;
         }
 
@@ -40,14 +37,12 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
 
         String cachedJson = trackCacheService.getCachedResult(identifier);
         if (cachedJson != null) {
-            String canonicalKey = normalizer.normalize(identifier);
-            log.debug("Serving cached loadtracks response for '{}' [key: {}]", identifier, canonicalKey);
+            log.debug("Serving cached loadtracks response for '{}'", identifier);
 
             response.setStatus(HttpServletResponse.SC_OK);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
             response.setHeader("X-TrackCache-Status", "HIT");
-            response.setHeader("X-TrackCache-Key", canonicalKey);
             response.getWriter().write(cachedJson);
             response.getWriter().flush();
 

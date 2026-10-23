@@ -130,10 +130,11 @@ plugins:
   trackcache:
     enabled: true               # Enable or disable plugin (default: true)
     rest-api: true              # Enable or disable /v4/trackcache REST endpoints (default: true)
+    rest-api-password: ""       # Optional: Password for REST API via X-TrackCache-Password header (disabled if empty)
     
     host: "localhost"
     port: 6379
-    password: ""
+    password: ""                # Redis server password (if required)
     database: 0
     ssl: false
     ttl-minutes: 1440           # Cache duration in minutes (default: 24 hours)
@@ -151,6 +152,7 @@ plugins:
 | :--- | :--- | :--- | :--- |
 | `enabled` | Boolean | `true` | Enables or disables the entire TrackCache caching system. |
 | `rest-api` | Boolean | `true` | Enables or disables admin & monitoring REST endpoints under `/v4/trackcache/...`. |
+| `rest-api-password` | String | `""` | Optional password for TrackCache REST API (`X-TrackCache-Password: <password>`). Ignored if empty. |
 | `host` | String | `"localhost"` | Redis server hostname or IP address. |
 | `port` | Integer | `6379` | Redis server port. |
 | `password` | String | `""` | Redis authentication password (leave empty if none). |
@@ -187,9 +189,14 @@ plugins:
 
 TrackCache provides administrative and monitoring endpoints under `/v4/trackcache/...`:
 
+> [!NOTE]
+> **Authentication:** If `rest-api-password` is configured in `application.yml`, include the `X-TrackCache-Password` header:
+> `X-TrackCache-Password: <your-rest-api-password>`. If `rest-api-password` is empty (default), authentication is disabled.
+
 ### 1. View Cache Statistics
 ```http
 GET /v4/trackcache/stats
+X-TrackCache-Password: my-secret-rest-api-password
 ```
 **Example Response:**
 ```json
@@ -202,7 +209,7 @@ GET /v4/trackcache/stats
   "errors": 0,
   "hitRatioPercent": 82.0,
   "ttlMinutes": 1440,
-  "keyPrefix": "lavalink:trackcache:",
+  "keyPrefix": "trackcache:",
   "totalCachedKeys": 1560
 }
 ```

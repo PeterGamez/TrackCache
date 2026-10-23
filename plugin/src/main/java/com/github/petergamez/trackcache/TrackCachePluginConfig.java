@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 public class TrackCachePluginConfig extends TrackCacheConfig {
 
     private boolean restApi = true;
+    private String restApiPassword = "";
 
     public boolean isRestApi() {
         return restApi;
@@ -19,5 +20,13 @@ public class TrackCachePluginConfig extends TrackCacheConfig {
 
     public void setRestApi(boolean restApi) {
         this.restApi = restApi;
+    }
+
+    public String getRestApiPassword() {
+        return restApiPassword;
+    }
+
+    public void setRestApiPassword(String restApiPassword) {
+        this.restApiPassword = restApiPassword;
     }
 }

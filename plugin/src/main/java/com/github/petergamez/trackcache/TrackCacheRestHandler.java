@@ -26,17 +26,26 @@ public class TrackCacheRestHandler {
     }
 
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getStats() {
+    public ResponseEntity<Map<String, Object>> getStats(
+            @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
         if (!config.isRestApi()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        if (!isAuthorized(trackCachePassword)) {
+            return unauthorizedResponse();
         }
         return ResponseEntity.ok(trackCacheService.getStats());
     }
 
     @GetMapping("/resolve")
-    public ResponseEntity<Map<String, Object>> resolve(@RequestParam("identifier") String identifier) {
+    public ResponseEntity<Map<String, Object>> resolve(
+            @RequestParam("identifier") String identifier,
+            @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
         if (!config.isRestApi()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        if (!isAuthorized(trackCachePassword)) {
+            return unauthorizedResponse();
         }
         Map<String, Object> result = new LinkedHashMap<>();
         String canonicalKey = normalizer.normalize(identifier);
@@ -51,9 +60,14 @@ public class TrackCacheRestHandler {
     }
 
     @PostMapping("/clear")
-    public ResponseEntity<Map<String, Object>> clear(@RequestParam(value = "identifier", required = false) String identifier) {
+    public ResponseEntity<Map<String, Object>> clear(
+            @RequestParam(value = "identifier", required = false) String identifier,
+            @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
         if (!config.isRestApi()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        if (!isAuthorized(trackCachePassword)) {
+            return unauthorizedResponse();
         }
         Map<String, Object> response = new LinkedHashMap<>();
 
@@ -71,5 +85,20 @@ public class TrackCacheRestHandler {
         }
 
         return ResponseEntity.ok(response);
+    }
+
+    private boolean isAuthorized(String trackCachePassword) {
+        String requiredPassword = config.getRestApiPassword();
+        if (requiredPassword == null || requiredPassword.trim().isEmpty()) {
+            return true; // Optional: disabled if not specified
+        }
+        return trackCachePassword != null && requiredPassword.equals(trackCachePassword.trim());
+    }
+
+    private ResponseEntity<Map<String, Object>> unauthorizedResponse() {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("error", "Unauthorized");
+        error.put("message", "Invalid or missing X-TrackCache-Password header");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 }

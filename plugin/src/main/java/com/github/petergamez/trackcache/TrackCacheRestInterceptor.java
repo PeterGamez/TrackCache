@@ -28,9 +28,13 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
             return true;
         }
 
+        if (!"GET".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+
         String uri = request.getRequestURI();
 
-        if (!uri.endsWith(LOADTRACKS_PATH)) {
+        if (!uri.endsWith(LOADTRACKS_PATH) && !uri.endsWith(LOADTRACKS_PATH + "/")) {
             return true;
         }
 
@@ -44,7 +48,7 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
             log.debug("Serving cached loadtracks response for '{}'", identifier);
 
             response.setStatus(HttpServletResponse.SC_OK);
-            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            response.setContentType("application/json;charset=UTF-8");
             response.setCharacterEncoding("UTF-8");
             response.setHeader("X-TrackCache-Status", "HIT");
             response.getWriter().write(cachedJson);

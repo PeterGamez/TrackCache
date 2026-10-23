@@ -2,6 +2,7 @@ package com.github.petergamez.trackcache;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
@@ -115,18 +116,21 @@ public class TrackCacheService {
         }
 
         try {
-            String json;
             JsonNode rootNode;
 
             if (responseBody instanceof String) {
-                json = (String) responseBody;
-                rootNode = objectMapper.readTree(json);
+                rootNode = objectMapper.readTree((String) responseBody);
             } else {
-                json = objectMapper.writeValueAsString(responseBody);
                 rootNode = objectMapper.valueToTree(responseBody);
             }
 
-            String loadType = rootNode.has("loadType") ? rootNode.get("loadType").asText() : "";
+            if (!(rootNode instanceof ObjectNode objectNode)) {
+                return;
+            }
+
+            sanitizeLoadResultNode(objectNode);
+
+            String loadType = objectNode.has("loadType") ? objectNode.get("loadType").asText() : "";
 
             if ("error".equalsIgnoreCase(loadType)) {
                 log.debug("Skipping caching error response for: '{}'", identifier);
@@ -144,7 +148,7 @@ public class TrackCacheService {
             if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
                 log.debug("Skipping caching full playlist response for: '{}'", identifier);
                 if (config.isCacheIndividualPlaylistTracks()) {
-                    decomposeAndCachePlaylistTracks(rootNode, getTtlDuration());
+                    decomposeAndCachePlaylistTracks(objectNode, getTtlDuration());
                 }
                 return;
             }
@@ -156,6 +160,7 @@ public class TrackCacheService {
 
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
             Duration ttl = getTtlDuration();
+            String json = objectMapper.writeValueAsString(objectNode);
 
             if (ttl != null) {
                 commands.setex(fullKey, ttl.getSeconds(), json);
@@ -167,7 +172,7 @@ public class TrackCacheService {
                     identifier, loadType, fullKey, ttl != null ? (config.getRedis().getTtl().getHours() + "h") : "persistent");
 
             if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
-                decomposeAndCachePlaylistTracks(rootNode, ttl);
+                decomposeAndCachePlaylistTracks(objectNode, ttl);
             }
         } catch (Exception e) {
             handleRedisError("Error writing to Redis for identifier: " + identifier, e);
@@ -211,6 +216,8 @@ public class TrackCacheService {
                 if (trackCanonicalKey == null || trackCanonicalKey.isEmpty()) {
                     continue;
                 }
+
+                sanitizeTrackNode(trackNode);
 
                 ObjectNode singleTrackResult = objectMapper.createObjectNode();
                 singleTrackResult.put("loadType", "track");
@@ -324,5 +331,98 @@ public class TrackCacheService {
         redisHealthy = false;
         lastErrorTime = System.currentTimeMillis();
         log.warn("{}: {} (temporarily marking Redis as unavailable for 10s)", message, e.getMessage());
+    }
+
+    public void sanitizeLoadResultNode(ObjectNode objectNode) {
+        if (objectNode == null) return;
+
+        // 1. Normalize loadType to Lavalink v4 lowercase specification
+        if (objectNode.has("loadType")) {
+            String rawType = objectNode.get("loadType").asText();
+            if ("NONE".equalsIgnoreCase(rawType)) {
+                objectNode.put("loadType", "empty");
+            } else {
+                objectNode.put("loadType", rawType.toLowerCase(Locale.ROOT));
+            }
+        }
+
+        String loadType = objectNode.has("loadType") ? objectNode.get("loadType").asText() : "";
+
+        // 2. Normalize payload structure according to Lavalink v4
+        if ("search".equals(loadType)) {
+            // Lavalink v4 requires search 'data' to be an array of tracks: Track[]
+            if (objectNode.has("data")) {
+                JsonNode dataNode = objectNode.get("data");
+                if (dataNode.isObject() && dataNode.has("tracks") && dataNode.get("tracks").isArray()) {
+                    ArrayNode tracksArray = (ArrayNode) dataNode.get("tracks");
+                    for (JsonNode track : tracksArray) {
+                        sanitizeTrackNode(track);
+                    }
+                    objectNode.set("data", tracksArray);
+                } else if (dataNode.isArray()) {
+                    for (JsonNode track : dataNode) {
+                        sanitizeTrackNode(track);
+                    }
+                }
+            } else {
+                objectNode.set("data", objectMapper.createArrayNode());
+            }
+        } else if ("track".equals(loadType)) {
+            // Lavalink v4 requires track 'data' to be a single Track object
+            if (objectNode.has("data")) {
+                sanitizeTrackNode(objectNode.get("data"));
+            }
+        } else if ("playlist".equals(loadType)) {
+            // Lavalink v4 requires playlist 'data' to be: { info: {...}, pluginInfo: {...}, tracks: Track[] }
+            if (objectNode.has("data") && objectNode.get("data").isObject()) {
+                ObjectNode playlistData = (ObjectNode) objectNode.get("data");
+                if (playlistData.has("tracks") && playlistData.get("tracks").isArray()) {
+                    for (JsonNode track : playlistData.get("tracks")) {
+                        sanitizeTrackNode(track);
+                    }
+                }
+            }
+        } else if ("empty".equals(loadType)) {
+            // Lavalink v4 requires empty 'data' to be an empty object {}
+            if (!objectNode.has("data") || objectNode.get("data").isNull()) {
+                objectNode.set("data", objectMapper.createObjectNode());
+            }
+        }
+    }
+
+    public void sanitizeTrackNode(JsonNode trackNode) {
+        if (trackNode == null || !trackNode.isObject()) {
+            return;
+        }
+        ObjectNode track = (ObjectNode) trackNode;
+
+        // Lavalink v4 TrackInfo specification
+        if (track.has("info") && track.get("info").isObject()) {
+            ObjectNode info = (ObjectNode) track.get("info");
+
+            if (info.has("seekable")) {
+                if (!info.has("isSeekable")) {
+                    info.set("isSeekable", info.get("seekable"));
+                }
+                info.remove("seekable");
+            }
+
+            if (info.has("stream")) {
+                if (!info.has("isStream")) {
+                    info.set("isStream", info.get("stream"));
+                }
+                info.remove("stream");
+            }
+        }
+
+        // Lavalink v4 requires pluginInfo as ObjectNode {}
+        if (!track.has("pluginInfo") || track.get("pluginInfo").isNull()) {
+            track.set("pluginInfo", objectMapper.createObjectNode());
+        }
+
+        // Lavalink v4 requires userData as ObjectNode {}
+        if (!track.has("userData") || track.get("userData").isNull()) {
+            track.set("userData", objectMapper.createObjectNode());
+        }
     }
 }

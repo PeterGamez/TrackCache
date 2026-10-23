@@ -251,26 +251,3 @@ GET /v4/trackcache/resolve?identifier=https://www.youtube.com/watch?v=dQw4w9WgXc
   ```
 
 ---
-
-## 🏷️ CI/CD Auto-versioning from Git Tags
-
-Modeled after `lavalink-devs/youtube-source`:
-- Uses `org.ajoberstar.grgit` in `build.gradle.kts` to dynamically calculate the project version from the current Git state.
-- When building on a tagged commit (e.g., `git tag -a 1.0.0`), the build automatically marks it as a release version.
-- When building on untagged or dirty commits, `-SNAPSHOT` is automatically appended.
-- The GitHub Actions workflow (`.github/workflows/publish.yml`) automatically builds and publishes the release artifact when a Git tag is pushed.
-
----
-
-## 🛠️ Building
-
-To build the plugin JAR locally:
-
-```bash
-./gradlew build
-```
-
-The resulting JAR will be generated in:
-```text
-build/libs/trackcache-plugin-<version>.jar
-```

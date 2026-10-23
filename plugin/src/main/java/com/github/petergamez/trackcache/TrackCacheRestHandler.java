@@ -1,5 +1,6 @@
 package com.github.petergamez.trackcache;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,13 +17,16 @@ public class TrackCacheRestHandler {
     private final TrackCacheService trackCacheService;
     private final UrlNormalizer normalizer;
     private final TrackCachePluginConfig config;
+    private final ObjectMapper objectMapper;
 
     public TrackCacheRestHandler(TrackCacheService trackCacheService,
                                  UrlNormalizer normalizer,
-                                 TrackCachePluginConfig config) {
+                                 TrackCachePluginConfig config,
+                                 ObjectMapper objectMapper) {
         this.trackCacheService = trackCacheService;
         this.normalizer = normalizer;
         this.config = config;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/stats")
@@ -48,7 +52,15 @@ public class TrackCacheRestHandler {
         result.put("identifier", identifier);
         result.put("canonicalKey", canonicalKey);
         result.put("cached", cachedJson != null);
-        result.put("cachedData", cachedJson);
+        if (cachedJson != null) {
+            try {
+                result.put("cachedData", objectMapper.readTree(cachedJson));
+            } catch (Exception e) {
+                result.put("cachedData", cachedJson);
+            }
+        } else {
+            result.put("cachedData", null);
+        }
 
         return ResponseEntity.ok(result);
     }

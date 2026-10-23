@@ -36,6 +36,9 @@ public class RedisConfiguration {
 
     @Bean(destroyMethod = "close")
     public StatefulRedisConnection<String, String> redisConnection(RedisClient redisClient) {
+        if (!config.isEnabled()) {
+            return null;
+        }
         try {
             return redisClient.connect();
         } catch (Exception e) {

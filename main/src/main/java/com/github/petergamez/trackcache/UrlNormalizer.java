@@ -93,7 +93,7 @@ public class UrlNormalizer {
 
     // Spotify Patterns
     private static final Pattern SPOTIFY_URL_PATTERN = Pattern.compile(
-            "^(?:https?://)?(?:open|play)\\.spotify\\.com/(track|playlist|album|artist)/([a-zA-Z0-9]+)",
+            "^(?:https?://)?(?:open|play)\\.spotify\\.com/(?:intl-[a-z]{2}/)?(track|playlist|album|artist)/([a-zA-Z0-9]+)",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern SPOTIFY_URI_PATTERN = Pattern.compile(
@@ -178,7 +178,7 @@ public class UrlNormalizer {
 
         // If it's a bare 11-char YouTube ID (e.g. dQw4w9WgXcQ)
         if (YOUTUBE_RAW_ID_PATTERN.matcher(query).matches()) {
-            return "youtube:" + query;
+            return "youtube:track:" + query;
         }
 
         // 5. Check SoundCloud
@@ -196,6 +196,12 @@ public class UrlNormalizer {
         if (appleMatcher.find()) {
             String type = appleMatcher.group(1).toLowerCase();
             String idOrPath = stripTrackingAndTrailingSlash(appleMatcher.group(2));
+            if (query.contains("?i=") || query.contains("&i=")) {
+                Matcher iMatcher = Pattern.compile("[?&]i=([0-9]+)").matcher(query);
+                if (iMatcher.find()) {
+                    return "applemusic:song:" + iMatcher.group(1);
+                }
+            }
             return "applemusic:" + type + ":" + idOrPath;
         }
 
@@ -218,14 +224,22 @@ public class UrlNormalizer {
 
     /**
      * Resolves the full Redis key including the configured prefix.
+     * Prevents double prefixing if the identifier is already prefixed.
      *
-     * @param identifier The raw input query/URL
-     * @param prefix The key prefix (e.g. "lavalink:trackcache:")
+     * @param identifier The raw input query/URL or existing key
+     * @param prefix The key prefix (e.g. "trackcache:")
      * @return Full Redis key
      */
     public String toFullCacheKey(String identifier, String prefix) {
+        String p = prefix != null ? prefix : "";
+        if (identifier == null) {
+            return p;
+        }
+        if (!p.isEmpty() && identifier.startsWith(p)) {
+            return identifier;
+        }
         String canonical = normalize(identifier);
-        return (prefix != null ? prefix : "") + canonical;
+        return p + canonical;
     }
 
     private String normalizeYouTube(String url) {

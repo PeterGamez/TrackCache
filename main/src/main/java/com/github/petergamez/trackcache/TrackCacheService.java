@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
-public class TrackCacheService {
+public class TrackCacheService implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(TrackCacheService.class);
 
@@ -224,7 +224,7 @@ public class TrackCacheService {
                 singleTrackResult.set("data", trackNode);
 
                 String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
-                String fullTrackKey = config.getRedis().getKeyPrefix() + trackCanonicalKey;
+                String fullTrackKey = normalizer.toFullCacheKey(trackCanonicalKey, config.getRedis().getKeyPrefix());
 
                 if (ttl != null) {
                     commands.setex(fullTrackKey, ttl.getSeconds(), singleTrackJson);
@@ -376,6 +376,9 @@ public class TrackCacheService {
             // Lavalink v4 requires playlist 'data' to be: { info: {...}, pluginInfo: {...}, tracks: Track[] }
             if (objectNode.has("data") && objectNode.get("data").isObject()) {
                 ObjectNode playlistData = (ObjectNode) objectNode.get("data");
+                if (!playlistData.has("pluginInfo") || playlistData.get("pluginInfo").isNull()) {
+                    playlistData.set("pluginInfo", objectMapper.createObjectNode());
+                }
                 if (playlistData.has("tracks") && playlistData.get("tracks").isArray()) {
                     for (JsonNode track : playlistData.get("tracks")) {
                         sanitizeTrackNode(track);
@@ -413,6 +416,19 @@ public class TrackCacheService {
                 }
                 info.remove("stream");
             }
+
+            if (!info.has("isSeekable")) {
+                boolean isStream = info.has("isStream") && info.get("isStream").asBoolean(false);
+                info.put("isSeekable", !isStream);
+            }
+
+            if (!info.has("isStream")) {
+                info.put("isStream", false);
+            }
+
+            if (!info.has("position")) {
+                info.put("position", 0);
+            }
         }
 
         // Lavalink v4 requires pluginInfo as ObjectNode {}
@@ -423,6 +439,16 @@ public class TrackCacheService {
         // Lavalink v4 requires userData as ObjectNode {}
         if (!track.has("userData") || track.get("userData").isNull()) {
             track.set("userData", objectMapper.createObjectNode());
+        }
+    }
+
+    @Override
+    public void close() {
+        if (connection != null && connection.isOpen()) {
+            try {
+                connection.close();
+            } catch (Exception ignored) {
+            }
         }
     }
 }

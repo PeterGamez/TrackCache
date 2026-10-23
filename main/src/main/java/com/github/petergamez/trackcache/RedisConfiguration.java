@@ -1,16 +1,14 @@
 package com.github.petergamez.trackcache;
 
 import io.lettuce.core.ClientOptions;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisURI;
 import io.lettuce.core.SocketOptions;
+import io.lettuce.core.api.StatefulRedisConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.connection.RedisPassword;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
 
@@ -25,31 +23,38 @@ public class RedisConfiguration {
         this.config = config;
     }
 
-    @Bean
-    public LettuceConnectionFactory redisConnectionFactory() {
+    @Bean(destroyMethod = "shutdown")
+    public RedisClient redisClient() {
         if (!config.isEnabled()) {
             log.info("TrackCache is disabled in configuration.");
         }
         TrackCacheConfig.RedisConfig redis = config.getRedis();
         log.info("Initializing Lettuce Redis connection to {}:{} (db: {}, ssl: {})",
                 redis.getHost(), redis.getPort(), redis.getDatabase(), redis.isSsl());
-        return createConnectionFactory(config);
+        return createRedisClient(config);
     }
 
-    @Bean
-    public StringRedisTemplate stringRedisTemplate(LettuceConnectionFactory connectionFactory) {
-        return createRedisTemplate(connectionFactory);
+    @Bean(destroyMethod = "close")
+    public StatefulRedisConnection<String, String> redisConnection(RedisClient redisClient) {
+        try {
+            return redisClient.connect();
+        } catch (Exception e) {
+            log.warn("Failed to connect to Redis on startup: {}. Reconnection will occur on demand.", e.getMessage());
+            return null;
+        }
     }
 
-    public static LettuceConnectionFactory createConnectionFactory(TrackCacheConfig config) {
+    public static RedisClient createRedisClient(TrackCacheConfig config) {
         TrackCacheConfig.RedisConfig redis = config.getRedis();
-        RedisStandaloneConfiguration serverConfig = new RedisStandaloneConfiguration();
-        serverConfig.setHostName(redis.getHost());
-        serverConfig.setPort(redis.getPort());
-        serverConfig.setDatabase(redis.getDatabase());
+        RedisURI.Builder builder = RedisURI.builder()
+                .withHost(redis.getHost())
+                .withPort(redis.getPort())
+                .withDatabase(redis.getDatabase())
+                .withSsl(redis.isSsl())
+                .withTimeout(Duration.ofSeconds(2));
 
         if (redis.getPassword() != null && !redis.getPassword().trim().isEmpty()) {
-            serverConfig.setPassword(RedisPassword.of(redis.getPassword().trim()));
+            builder.withPassword(redis.getPassword().trim().toCharArray());
         }
 
         SocketOptions socketOptions = SocketOptions.builder()
@@ -62,23 +67,8 @@ public class RedisConfiguration {
                 .autoReconnect(true)
                 .build();
 
-        LettuceClientConfiguration.LettuceClientConfigurationBuilder builder = LettuceClientConfiguration.builder()
-                .commandTimeout(Duration.ofSeconds(2))
-                .clientOptions(clientOptions);
-
-        if (redis.isSsl()) {
-            builder.useSsl();
-        }
-
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(serverConfig, builder.build());
-        factory.afterPropertiesSet();
-        return factory;
-    }
-
-    public static StringRedisTemplate createRedisTemplate(LettuceConnectionFactory connectionFactory) {
-        StringRedisTemplate template = new StringRedisTemplate();
-        template.setConnectionFactory(connectionFactory);
-        template.afterPropertiesSet();
-        return template;
+        RedisClient client = RedisClient.create(builder.build());
+        client.setOptions(clientOptions);
+        return client;
     }
 }

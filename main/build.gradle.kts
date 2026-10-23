@@ -22,9 +22,10 @@ tasks.jar {
 }
 
 dependencies {
-    api("org.springframework.boot:spring-boot-starter-data-redis:3.2.5")
-    api("com.fasterxml.jackson.core:jackson-databind:2.16.1")
-    api("org.slf4j:slf4j-api:2.0.12")
+    api("io.lettuce:lettuce-core:6.3.2.RELEASE")
+    compileOnly("org.springframework.boot:spring-boot:3.3.0")
+    compileOnly("com.fasterxml.jackson.core:jackson-databind:2.16.1")
+    compileOnly("org.slf4j:slf4j-api:2.0.12")
 }
 
 publishing {

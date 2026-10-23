@@ -3,9 +3,12 @@ package com.github.petergamez.trackcache;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -19,8 +22,9 @@ public class TrackCacheService {
 
     private final TrackCacheConfig config;
     private final UrlNormalizer normalizer;
-    private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final RedisClient redisClient;
+    private volatile StatefulRedisConnection<String, String> connection;
 
     private final AtomicLong hits = new AtomicLong(0);
     private final AtomicLong misses = new AtomicLong(0);
@@ -31,14 +35,43 @@ public class TrackCacheService {
     private volatile long lastErrorTime = 0;
     private static final long HEALTH_CHECK_COOLDOWN_MS = 10_000;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public TrackCacheService(TrackCacheConfig config,
                              UrlNormalizer normalizer,
-                             StringRedisTemplate redisTemplate,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             @Nullable RedisClient redisClient,
+                             @Nullable StatefulRedisConnection<String, String> connection) {
         this.config = config;
         this.normalizer = normalizer;
-        this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.redisClient = redisClient;
+        this.connection = connection;
+    }
+
+    public TrackCacheService(TrackCacheConfig config,
+                             UrlNormalizer normalizer,
+                             ObjectMapper objectMapper,
+                             @Nullable RedisClient redisClient) {
+        this(config, normalizer, objectMapper, redisClient, null);
+    }
+
+    private synchronized RedisCommands<String, String> getCommands() {
+        if (!config.isEnabled() || !isRedisAvailable()) {
+            return null;
+        }
+        if (connection != null && connection.isOpen()) {
+            return connection.sync();
+        }
+        if (redisClient == null) {
+            return null;
+        }
+        try {
+            this.connection = redisClient.connect();
+            return this.connection.sync();
+        } catch (Exception e) {
+            handleRedisError("Failed to connect to Redis", e);
+            return null;
+        }
     }
 
     public boolean isEnabled() {
@@ -51,8 +84,14 @@ public class TrackCacheService {
         }
 
         try {
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) {
+                misses.incrementAndGet();
+                return null;
+            }
+
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
-            String cached = redisTemplate.opsForValue().get(fullKey);
+            String cached = commands.get(fullKey);
 
             if (cached != null && !cached.isEmpty()) {
                 hits.incrementAndGet();
@@ -110,13 +149,18 @@ public class TrackCacheService {
                 return;
             }
 
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) {
+                return;
+            }
+
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
             Duration ttl = getTtlDuration();
 
             if (ttl != null) {
-                redisTemplate.opsForValue().set(fullKey, json, ttl);
+                commands.setex(fullKey, ttl.getSeconds(), json);
             } else {
-                redisTemplate.opsForValue().set(fullKey, json);
+                commands.set(fullKey, json);
             }
             puts.incrementAndGet();
             log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
@@ -139,6 +183,11 @@ public class TrackCacheService {
 
             JsonNode tracksNode = dataNode.get("tracks");
             if (!tracksNode.isArray() || tracksNode.isEmpty()) {
+                return;
+            }
+
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) {
                 return;
             }
 
@@ -171,9 +220,9 @@ public class TrackCacheService {
                 String fullTrackKey = config.getRedis().getKeyPrefix() + trackCanonicalKey;
 
                 if (ttl != null) {
-                    redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson, ttl);
+                    commands.setex(fullTrackKey, ttl.getSeconds(), singleTrackJson);
                 } else {
-                    redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson);
+                    commands.set(fullTrackKey, singleTrackJson);
                 }
                 puts.incrementAndGet();
                 count++;
@@ -188,9 +237,11 @@ public class TrackCacheService {
     public boolean evict(String identifier) {
         if (!isRedisAvailable()) return false;
         try {
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) return false;
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
-            Boolean deleted = redisTemplate.delete(fullKey);
-            return Boolean.TRUE.equals(deleted);
+            Long deleted = commands.del(fullKey);
+            return deleted != null && deleted > 0;
         } catch (Exception e) {
             handleRedisError("Error evicting key for: " + identifier, e);
             return false;
@@ -200,9 +251,11 @@ public class TrackCacheService {
     public long clearAll() {
         if (!isRedisAvailable()) return 0;
         try {
-            Set<String> keys = redisTemplate.keys(config.getRedis().getKeyPrefix() + "*");
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) return 0;
+            List<String> keys = commands.keys(config.getRedis().getKeyPrefix() + "*");
             if (keys != null && !keys.isEmpty()) {
-                Long deleted = redisTemplate.delete(keys);
+                Long deleted = commands.del(keys.toArray(new String[0]));
                 return deleted != null ? deleted : 0;
             }
             return 0;
@@ -232,8 +285,13 @@ public class TrackCacheService {
 
         try {
             if (isRedisAvailable()) {
-                Set<String> keys = redisTemplate.keys(config.getRedis().getKeyPrefix() + "*");
-                stats.put("totalCachedKeys", keys != null ? keys.size() : 0);
+                RedisCommands<String, String> commands = getCommands();
+                if (commands != null) {
+                    List<String> keys = commands.keys(config.getRedis().getKeyPrefix() + "*");
+                    stats.put("totalCachedKeys", keys != null ? keys.size() : 0);
+                } else {
+                    stats.put("totalCachedKeys", "unavailable");
+                }
             } else {
                 stats.put("totalCachedKeys", "unavailable");
             }

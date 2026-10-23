@@ -13,6 +13,7 @@ public class TrackCacheConfig {
     private boolean cacheIndividualPlaylistTracks = true;
     private boolean cacheEmpty = false;
     private boolean cacheSearches = true;
+    private boolean cacheIndividualSearchTracks = true;
 
     public static class RedisConfig {
         private String host = "localhost";

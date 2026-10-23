@@ -143,6 +143,9 @@ public class TrackCacheService implements AutoCloseable {
 
             if ("search".equalsIgnoreCase(loadType) && !config.isCacheSearches()) {
                 log.debug("Skipping caching search response for: '{}'", identifier);
+                if (config.isCacheIndividualSearchTracks()) {
+                    decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
+                }
                 return;
             }
             if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
@@ -176,9 +179,23 @@ public class TrackCacheService implements AutoCloseable {
 
             if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
                 decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
+            } else if ("search".equalsIgnoreCase(loadType) && config.isCacheIndividualSearchTracks()) {
+                decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
             }
         } catch (Exception e) {
             handleRedisError("Error writing to Redis for identifier: " + identifier, e);
+        }
+    }
+
+    private void decomposeAndCacheSearchTracks(JsonNode searchRoot, Duration ttl) {
+        try {
+            JsonNode dataNode = searchRoot.get("data");
+            if (dataNode == null || !dataNode.isArray() || dataNode.isEmpty()) {
+                return;
+            }
+            decomposeAndCacheTrackNodes(dataNode, ttl, "search");
+        } catch (Exception e) {
+            log.warn("Failed to decompose search tracks: {}", e.getMessage());
         }
     }
 
@@ -194,6 +211,14 @@ public class TrackCacheService implements AutoCloseable {
                 return;
             }
 
+            decomposeAndCacheTrackNodes(tracksNode, ttl, "playlist");
+        } catch (Exception e) {
+            log.warn("Failed to decompose playlist tracks: {}", e.getMessage());
+        }
+    }
+
+    private void decomposeAndCacheTrackNodes(Iterable<JsonNode> tracksNode, Duration ttl, String source) {
+        try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) {
                 return;
@@ -238,9 +263,9 @@ public class TrackCacheService implements AutoCloseable {
                 count++;
             }
 
-            log.debug("Decomposed and cached {} individual tracks from playlist.", count);
+            log.debug("Decomposed and cached {} individual tracks from {}.", count, source);
         } catch (Exception e) {
-            log.warn("Failed to decompose playlist tracks: {}", e.getMessage());
+            log.warn("Failed to decompose tracks from {}: {}", source, e.getMessage());
         }
     }
 

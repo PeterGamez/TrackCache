@@ -150,6 +150,7 @@ plugins:
     cache-individual-playlist-tracks: true # Decompose and cache individual tracks from playlists
     cache-empty: false          # Do not cache empty/404 results
     cache-searches: true        # Cache search query results
+    cache-individual-search-tracks: true # Decompose and cache individual tracks from search results
 ```
 
 ### 🔧 Configuration Options Breakdown
@@ -173,6 +174,7 @@ plugins:
 | `cache-individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
 | `cache-empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
 | `cache-searches` | Boolean | `true` | Caches search queries (e.g., `ytsearch:...`, `scsearch:...`). |
+| `cache-individual-search-tracks` | Boolean | `true` | Decomposes tracks within search results and pre-warms cache for each individual track. |
 
 #### 💡 Deep Dive: How the Caching Flags Differ
 

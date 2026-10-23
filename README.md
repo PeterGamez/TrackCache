@@ -165,12 +165,12 @@ plugins:
 #### 💡 Deep Dive: How the Caching Flags Differ
 
 1. **Playlists (`cache.playlists` vs. `cache.individual-playlist-tracks`)**
-   - **`cache.playlists: true` (Full Playlist Caching):** Caches the entire playlist response as a composite object under `trackcache:youtube:playlist:<id>`. When users re-request the exact same playlist URL, it resolves instantly in `< 1ms`.
-   - **`cache.individual-playlist-tracks: true` (Track Pre-warming):** Decomposes every track inside that playlist and independently caches each song under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song that happened to be in that playlist, it results in an instant **Cache HIT** without querying external providers.
+   - **`cache.playlists: true` (Full Playlist Caching):** Caches the entire playlist response under `trackcache:youtube:playlist:<id>`. When users re-request the exact same playlist URL, it resolves instantly without querying external providers.
+   - **`cache.individual-playlist-tracks: true` (Track Pre-warming):** Decomposes every track inside that playlist and independently caches each song under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song from that playlist, it results in an instant **Cache HIT** without querying external providers.
 
 2. **Searches (`cache.searches` vs. `cache.individual-search-tracks`)**
-   - **`cache.searches: true` (Search Query Caching):** Caches the search query result itself (e.g., `ytsearch:faded alan walker`) under `trackcache:youtube:search:faded alan walker` with the shorter search TTL (default: 2 hours). Repeated queries for popular terms return cached results immediately.
-   - **`cache.individual-search-tracks: true` (Search Track Pre-warming):** Decomposes all individual tracks returned from search queries and pre-warms each song into cache with the full track TTL (default: 72 hours). If any user later pastes the direct URL of one of those search result songs, it resolves instantly from track cache without making an external request!
+   - **`cache.searches: true` (Search Query Caching):** Caches the entire search query response under `trackcache:youtube:search:<query>` (e.g., `ytsearch:faded alan walker`). When users re-request the exact same search query, it resolves instantly without querying external providers.
+   - **`cache.individual-search-tracks: true` (Track Pre-warming):** Decomposes every track inside the search results and independently caches each song under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song from those search results, it results in an instant **Cache HIT** without querying external providers.
 
 3. **Empty / 404 Results (`cache.empty`)**
    - **`false` (Recommended):** Avoids caching unavailable, deleted, or mistyped identifiers. If a track becomes available later or the user fixes a typo, Lavalink will retry cleanly.

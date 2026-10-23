@@ -142,7 +142,9 @@ plugins:
       key-prefix: "trackcache:" # Redis key prefix
       ttl:
         enabled: true           # Enable or disable TTL expiration (false = persistent cache, never expires)
-        hours: 24               # Cache expiration in hours (default: 24 = 1 day)
+        track-hours: 72         # TTL for individual tracks in hours (default: 72 = 3 days)
+        search-hours: 2         # TTL for search queries in hours (default: 2 hours)
+        playlist-hours: 24      # TTL for full playlists in hours (default: 24 = 1 day)
 
     cache-playlists: true       # Cache full playlist responses
     cache-individual-playlist-tracks: true # Decompose and cache individual tracks from playlists
@@ -164,7 +166,9 @@ plugins:
 | `redis.ssl` | Boolean | `false` | Enables SSL/TLS encryption for Redis connections (e.g. AWS ElastiCache / Redis Cloud). |
 | `redis.key-prefix` | String | `"trackcache:"` | Namespace prefix prepended to all Redis keys to avoid collisions with other apps. |
 | `redis.ttl.enabled` | Boolean | `true` | Enables or disables TTL expiration (`false` = persistent cache, entries never expire). |
-| `redis.ttl.hours` | Long | `24` | Cache expiration duration in hours (e.g. 24 = 1 day, 168 = 7 days). |
+| `redis.ttl.track-hours` | Long | `72` | Cache expiration duration for individual tracks in hours (default: 72 = 3 days). |
+| `redis.ttl.search-hours` | Long | `2` | Cache expiration duration for search query results in hours (default: 2 hours). |
+| `redis.ttl.playlist-hours` | Long | `24` | Cache expiration duration for full playlist payloads in hours (default: 24 = 1 day). |
 | `cache-playlists` | Boolean | `true` | Caches the full playlist payload (`loadType: playlist`) under the playlist's canonical key. |
 | `cache-individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
 | `cache-empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
@@ -214,7 +218,9 @@ X-TrackCache-Password: my-secret-rest-api-password
   "errors": 0,
   "hitRatioPercent": 82.0,
   "ttlEnabled": true,
-  "ttlHours": 24,
+  "ttlTrackHours": 72,
+  "ttlSearchHours": 2,
+  "ttlPlaylistHours": 24,
   "keyPrefix": "trackcache:",
   "totalCachedKeys": 1560
 }

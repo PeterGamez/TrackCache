@@ -148,7 +148,7 @@ public class TrackCacheService implements AutoCloseable {
             if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
                 log.debug("Skipping caching full playlist response for: '{}'", identifier);
                 if (config.isCacheIndividualPlaylistTracks()) {
-                    decomposeAndCachePlaylistTracks(objectNode, getTtlDuration());
+                    decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
                 }
                 return;
             }
@@ -159,7 +159,7 @@ public class TrackCacheService implements AutoCloseable {
             }
 
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
-            Duration ttl = getTtlDuration();
+            Duration ttl = getTtlDuration(loadType);
             String json = objectMapper.writeValueAsString(objectNode);
 
             if (ttl != null) {
@@ -168,11 +168,14 @@ public class TrackCacheService implements AutoCloseable {
                 commands.set(fullKey, json);
             }
             puts.incrementAndGet();
+            String ttlDisplay = ttl != null
+                    ? (ttl.toHours() > 0 ? ttl.toHours() + "h" : ttl.toMinutes() + "m")
+                    : "persistent";
             log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
-                    identifier, loadType, fullKey, ttl != null ? (config.getRedis().getTtl().getHours() + "h") : "persistent");
+                    identifier, loadType, fullKey, ttlDisplay);
 
             if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
-                decomposeAndCachePlaylistTracks(objectNode, ttl);
+                decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
             }
         } catch (Exception e) {
             handleRedisError("Error writing to Redis for identifier: " + identifier, e);
@@ -287,7 +290,9 @@ public class TrackCacheService implements AutoCloseable {
         stats.put("errors", errors.get());
         stats.put("hitRatioPercent", Math.round(hitRatio * 100.0) / 100.0);
         stats.put("ttlEnabled", config.getRedis().getTtl().isEnabled());
-        stats.put("ttlHours", config.getRedis().getTtl().getHours());
+        stats.put("ttlTrackHours", config.getRedis().getTtl().getTrackHours());
+        stats.put("ttlSearchHours", config.getRedis().getTtl().getSearchHours());
+        stats.put("ttlPlaylistHours", config.getRedis().getTtl().getPlaylistHours());
         stats.put("keyPrefix", config.getRedis().getKeyPrefix());
 
         try {
@@ -309,12 +314,29 @@ public class TrackCacheService implements AutoCloseable {
         return stats;
     }
 
-    private Duration getTtlDuration() {
+    public Duration getTtlDuration(String loadType) {
         TrackCacheConfig.RedisConfig.TtlConfig ttl = config.getRedis().getTtl();
-        if (!ttl.isEnabled() || ttl.getHours() <= 0) {
+        if (!ttl.isEnabled()) {
             return null; // TTL disabled: persistent in Redis
         }
-        return Duration.ofHours(ttl.getHours());
+
+        if ("search".equalsIgnoreCase(loadType)) {
+            long h = ttl.getSearchHours();
+            return h > 0 ? Duration.ofHours(h) : null;
+        }
+
+        if ("playlist".equalsIgnoreCase(loadType)) {
+            long h = ttl.getPlaylistHours();
+            return h > 0 ? Duration.ofHours(h) : null;
+        }
+
+        // Default or "track"
+        long h = ttl.getTrackHours();
+        return h > 0 ? Duration.ofHours(h) : null;
+    }
+
+    public Duration getTtlDuration() {
+        return getTtlDuration("track");
     }
 
     private boolean isRedisAvailable() {

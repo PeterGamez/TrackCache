@@ -25,7 +25,9 @@ public class TrackCacheConfig {
 
         public static class TtlConfig {
             private boolean enabled = true;
-            private long hours = 24; // Default: 24 hours (1 day)
+            private long trackHours = 72; // Default: 72 hours (3 days)
+            private long searchHours = 2; // Default: 2 hours
+            private long playlistHours = 24; // Default: 24 hours
 
             public boolean isEnabled() {
                 return enabled;
@@ -35,12 +37,40 @@ public class TrackCacheConfig {
                 this.enabled = enabled;
             }
 
-            public long getHours() {
-                return hours;
+            public long getTrackHours() {
+                return trackHours;
             }
 
-            public void setHours(long hours) {
-                this.hours = hours;
+            public void setTrackHours(long trackHours) {
+                this.trackHours = trackHours;
+            }
+
+            public void setTrack(long track) {
+                this.trackHours = track;
+            }
+
+            public long getSearchHours() {
+                return searchHours;
+            }
+
+            public void setSearchHours(long searchHours) {
+                this.searchHours = searchHours;
+            }
+
+            public void setSearch(long search) {
+                this.searchHours = search;
+            }
+
+            public long getPlaylistHours() {
+                return playlistHours;
+            }
+
+            public void setPlaylistHours(long playlistHours) {
+                this.playlistHours = playlistHours;
+            }
+
+            public void setPlaylist(long playlist) {
+                this.playlistHours = playlist;
             }
         }
 

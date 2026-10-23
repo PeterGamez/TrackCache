@@ -25,57 +25,48 @@ public class UrlNormalizer {
         // Standard Lavalink / YouTube
         SEARCH_PREFIX_MAP.put("ytsearch", "youtube");
         SEARCH_PREFIX_MAP.put("ytmsearch", "youtubemusic");
-        SEARCH_PREFIX_MAP.put("youtube", "youtube");
 
         // SoundCloud
         SEARCH_PREFIX_MAP.put("scsearch", "soundcloud");
-        SEARCH_PREFIX_MAP.put("soundcloud", "soundcloud");
 
-        // Spotify
+        // Spotify & Spotify Mix Recommendations
         SEARCH_PREFIX_MAP.put("spsearch", "spotify");
         SEARCH_PREFIX_MAP.put("sprec", "spotify:rec");
-        SEARCH_PREFIX_MAP.put("spotify", "spotify");
+
+        // Amazon Music
+        SEARCH_PREFIX_MAP.put("amzsearch", "amazonmusic");
+        SEARCH_PREFIX_MAP.put("amz", "amazonmusic");
 
         // Apple Music
         SEARCH_PREFIX_MAP.put("amsearch", "applemusic");
-        SEARCH_PREFIX_MAP.put("applemusic", "applemusic");
 
         // Deezer
         SEARCH_PREFIX_MAP.put("dzsearch", "deezer");
         SEARCH_PREFIX_MAP.put("dzisrc", "deezer:isrc");
-        SEARCH_PREFIX_MAP.put("deezer", "deezer");
 
         // JioSaavn
         SEARCH_PREFIX_MAP.put("jssearch", "jiosaavn");
-        SEARCH_PREFIX_MAP.put("jiosaavn", "jiosaavn");
 
         // Gaana
         SEARCH_PREFIX_MAP.put("gnsearch", "gaana");
-        SEARCH_PREFIX_MAP.put("gaana", "gaana");
 
         // Audiomack
         SEARCH_PREFIX_MAP.put("admsearch", "audiomack");
-        SEARCH_PREFIX_MAP.put("audiomack", "audiomack");
 
         // Tidal
         SEARCH_PREFIX_MAP.put("tdsearch", "tidal");
-        SEARCH_PREFIX_MAP.put("tidal", "tidal");
 
         // Yandex Music
         SEARCH_PREFIX_MAP.put("ymsearch", "yandexmusic");
-        SEARCH_PREFIX_MAP.put("yandexmusic", "yandexmusic");
 
         // VK Music
         SEARCH_PREFIX_MAP.put("vksearch", "vkmusic");
-        SEARCH_PREFIX_MAP.put("vkmusic", "vkmusic");
 
         // Qobuz
         SEARCH_PREFIX_MAP.put("qbsearch", "qobuz");
-        SEARCH_PREFIX_MAP.put("qobuz", "qobuz");
 
         // Pandora
         SEARCH_PREFIX_MAP.put("pdsearch", "pandora");
-        SEARCH_PREFIX_MAP.put("pandora", "pandora");
     }
 
     private static final Pattern GENERIC_SEARCH_PREFIX_PATTERN = Pattern.compile("^([a-zA-Z0-9_]+):\\s*(.*)$");
@@ -118,6 +109,18 @@ public class UrlNormalizer {
             Pattern.CASE_INSENSITIVE
     );
 
+    // Amazon Music Patterns
+    private static final Pattern AMAZON_MUSIC_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:music|www)\\.amazon\\.[a-z.]+(?:/[a-z]{2})?/(albums|tracks|playlists)/([a-zA-Z0-9]+)",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    // Spotify LavaSrc Recommendations & Mix Pattern
+    private static final Pattern SPREC_MIX_PATTERN = Pattern.compile(
+            "^mix:(track|album|artist|isrc):\\s*(.+)$",
+            Pattern.CASE_INSENSITIVE
+    );
+
     // Tracking query parameter names to remove
     private static final Set<String> TRACKING_PARAMS = new HashSet<>(Arrays.asList(
             "si", "ref", "feature", "ab_channel", "fbclid", "igshid", "t", "index", "pp"
@@ -136,11 +139,15 @@ public class UrlNormalizer {
 
         String query = identifier.trim();
 
-        // 1. Check Search Queries (Lavalink & PulseLink prefixes)
+        // 1. Check Search Queries & Prefixes (Lavalink, PulseLink, LavaSrc)
         Matcher prefixMatcher = GENERIC_SEARCH_PREFIX_PATTERN.matcher(query);
         if (prefixMatcher.find()) {
             String prefix = prefixMatcher.group(1).toLowerCase();
             String rest = prefixMatcher.group(2).trim().replaceAll("\\s+", " ");
+
+            if ("sprec".equals(prefix)) {
+                return normalizeSpotifyRec(rest);
+            }
 
             if (SEARCH_PREFIX_MAP.containsKey(prefix)) {
                 String platform = SEARCH_PREFIX_MAP.get(prefix);
@@ -212,13 +219,47 @@ public class UrlNormalizer {
             return "deezer:" + type + ":" + id;
         }
 
-        // 8. Generic HTTP/HTTPS URL Normalization
+        // 8. Check Amazon Music
+        Matcher amazonMatcher = AMAZON_MUSIC_URL_PATTERN.matcher(query);
+        if (amazonMatcher.find()) {
+            String type = amazonMatcher.group(1).toLowerCase();
+            if (type.endsWith("s")) {
+                type = type.substring(0, type.length() - 1);
+            }
+            String id = amazonMatcher.group(2);
+            return "amazonmusic:" + type + ":" + id;
+        }
+
+        // 9. Generic HTTP/HTTPS URL Normalization
         if (query.startsWith("http://") || query.startsWith("https://")) {
             return normalizeGenericUrl(query);
         }
 
-        // 9. Fallback for any other identifier
+        // 10. Fallback for any other identifier
         return query.replaceAll("\\s+", " ");
+    }
+
+    private String normalizeSpotifyRec(String rest) {
+        // Handle LavaSrc inspired-by mix flow: sprec:mix:(track|album|artist|isrc):<id|url|uri>
+        Matcher mixMatcher = SPREC_MIX_PATTERN.matcher(rest);
+        if (mixMatcher.find()) {
+            String mixType = mixMatcher.group(1).toLowerCase();
+            String target = mixMatcher.group(2).trim();
+
+            Matcher uriMatcher = SPOTIFY_URI_PATTERN.matcher(target);
+            if (uriMatcher.find()) {
+                target = uriMatcher.group(2);
+            } else {
+                Matcher urlMatcher = SPOTIFY_URL_PATTERN.matcher(target);
+                if (urlMatcher.find()) {
+                    target = urlMatcher.group(2);
+                }
+            }
+
+            return "spotify:rec:mix:" + mixType + ":" + target;
+        }
+
+        return "spotify:rec:" + rest;
     }
 
     /**

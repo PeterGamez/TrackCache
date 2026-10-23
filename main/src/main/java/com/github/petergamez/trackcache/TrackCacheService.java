@@ -9,11 +9,15 @@ import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -36,7 +40,7 @@ public class TrackCacheService implements AutoCloseable {
     private volatile long lastErrorTime = 0;
     private static final long HEALTH_CHECK_COOLDOWN_MS = 10_000;
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public TrackCacheService(TrackCacheConfig config,
                              UrlNormalizer normalizer,
                              ObjectMapper objectMapper,

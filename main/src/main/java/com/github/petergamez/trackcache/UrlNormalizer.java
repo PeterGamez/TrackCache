@@ -5,15 +5,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Normalizes input queries and URLs into a standardized Canonical Key for Redis caching.
- * Uses full platform names (e.g. 'youtube', 'spotify', 'soundcloud', 'deezer', 'applemusic', 'jiosaavn')
- * and maps all standard Lavalink & PulseLink search prefixes to their platform names.
- */
 @Component
 public class UrlNormalizer {
 

@@ -11,22 +11,43 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "plugins.trackcache")
 public class TrackCachePluginConfig extends TrackCacheConfig {
 
-    private boolean restApi = true;
-    private String restApiPassword = "";
+    private RestApiConfig restApi = new RestApiConfig();
 
-    public boolean isRestApi() {
+    public static class RestApiConfig {
+        private boolean enabled = true;
+        private String password = "";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+    }
+
+    public RestApiConfig getRestApi() {
         return restApi;
     }
 
-    public void setRestApi(boolean restApi) {
+    public void setRestApi(RestApiConfig restApi) {
         this.restApi = restApi;
     }
 
-    public String getRestApiPassword() {
-        return restApiPassword;
+    // Convenience delegates
+    public boolean isRestApi() {
+        return restApi != null && restApi.isEnabled();
     }
 
-    public void setRestApiPassword(String restApiPassword) {
-        this.restApiPassword = restApiPassword;
+    public String getRestApiPassword() {
+        return restApi != null ? restApi.getPassword() : "";
     }
 }

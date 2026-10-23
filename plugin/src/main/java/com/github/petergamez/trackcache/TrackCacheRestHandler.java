@@ -10,7 +10,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/v4/trackcache")
-@ConditionalOnProperty(prefix = "plugins.trackcache", name = "rest-api", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "plugins.trackcache.rest-api", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class TrackCacheRestHandler {
 
     private final TrackCacheService trackCacheService;

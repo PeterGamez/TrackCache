@@ -101,18 +101,22 @@ public class TrackCacheService {
             if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
                 log.debug("Skipping caching full playlist response for: '{}'", identifier);
                 if (config.isCacheIndividualPlaylistTracks()) {
-                    decomposeAndCachePlaylistTracks(rootNode, Duration.ofMinutes(config.getTtlMinutes()));
+                    decomposeAndCachePlaylistTracks(rootNode, getTtlDuration());
                 }
                 return;
             }
 
             String fullKey = normalizer.toFullCacheKey(identifier, config.getKeyPrefix());
-            Duration ttl = Duration.ofMinutes(config.getTtlMinutes());
+            Duration ttl = getTtlDuration();
 
-            redisTemplate.opsForValue().set(fullKey, json, ttl);
+            if (ttl != null) {
+                redisTemplate.opsForValue().set(fullKey, json, ttl);
+            } else {
+                redisTemplate.opsForValue().set(fullKey, json);
+            }
             puts.incrementAndGet();
-            log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}m]",
-                    identifier, loadType, fullKey, config.getTtlMinutes());
+            log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
+                    identifier, loadType, fullKey, ttl != null ? (config.getTtlHours() + "h") : "persistent");
 
             if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
                 decomposeAndCachePlaylistTracks(rootNode, ttl);
@@ -162,7 +166,11 @@ public class TrackCacheService {
                 String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
                 String fullTrackKey = config.getKeyPrefix() + trackCanonicalKey;
 
-                redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson, ttl);
+                if (ttl != null) {
+                    redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson, ttl);
+                } else {
+                    redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson);
+                }
                 puts.incrementAndGet();
                 count++;
             }
@@ -214,7 +222,8 @@ public class TrackCacheService {
         stats.put("puts", puts.get());
         stats.put("errors", errors.get());
         stats.put("hitRatioPercent", Math.round(hitRatio * 100.0) / 100.0);
-        stats.put("ttlMinutes", config.getTtlMinutes());
+        stats.put("ttlEnabled", config.isTtlEnabled());
+        stats.put("ttlHours", config.getTtlHours());
         stats.put("keyPrefix", config.getKeyPrefix());
 
         try {
@@ -229,6 +238,13 @@ public class TrackCacheService {
         }
 
         return stats;
+    }
+
+    private Duration getTtlDuration() {
+        if (!config.isTtlEnabled() || config.getTtlHours() <= 0) {
+            return null; // TTL disabled: persistent in Redis
+        }
+        return Duration.ofHours(config.getTtlHours());
     }
 
     private boolean isRedisAvailable() {

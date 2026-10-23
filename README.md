@@ -129,17 +129,22 @@ lavalink:
 plugins:
   trackcache:
     enabled: true               # Enable or disable plugin (default: true)
-    rest-api: true              # Enable or disable /v4/trackcache REST endpoints (default: true)
-    rest-api-password: ""       # Optional: Password for REST API via X-TrackCache-Password header (disabled if empty)
-    
-    host: "localhost"
-    port: 6379
-    password: ""                # Redis server password (if required)
-    database: 0
-    ssl: false
-    ttl-minutes: 1440           # Cache duration in minutes (default: 24 hours)
-    key-prefix: "trackcache:"   # Redis key prefix
-    
+
+    rest-api:
+      enabled: true             # Enable or disable /v4/trackcache REST endpoints (default: true)
+      password: ""              # Optional: Password for REST API via X-TrackCache-Password header (disabled if empty)
+
+    redis:
+      host: "localhost"
+      port: 6379
+      password: ""              # Redis server password (if required)
+      database: 0
+      ssl: false
+      key-prefix: "trackcache:" # Redis key prefix
+      ttl:
+        enabled: true           # Enable or disable TTL expiration (false = persistent cache, never expires)
+        hours: 24               # Cache expiration in hours (default: 24 = 1 day)
+
     cache-playlists: true       # Cache full playlist responses
     cache-individual-playlist-tracks: true # Decompose and cache individual tracks from playlists
     cache-empty: false          # Do not cache empty/404 results
@@ -151,15 +156,16 @@ plugins:
 | Setting | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | Boolean | `true` | Enables or disables the entire TrackCache caching system. |
-| `rest-api` | Boolean | `true` | Enables or disables admin & monitoring REST endpoints under `/v4/trackcache/...`. |
-| `rest-api-password` | String | `""` | Optional password for TrackCache REST API (`X-TrackCache-Password: <password>`). Ignored if empty. |
-| `host` | String | `"localhost"` | Redis server hostname or IP address. |
-| `port` | Integer | `6379` | Redis server port. |
-| `password` | String | `""` | Redis authentication password (leave empty if none). |
-| `database` | Integer | `0` | Redis database index (0-15). |
-| `ssl` | Boolean | `false` | Enables SSL/TLS encryption for Redis connections (e.g. AWS ElastiCache / Redis Cloud). |
-| `ttl-minutes` | Long | `1440` | Cache expiration time in minutes (default: 1440 = 24 hours). |
-| `key-prefix` | String | `"trackcache:"` | Namespace prefix prepended to all Redis keys to avoid collisions with other apps. |
+| `rest-api.enabled` | Boolean | `true` | Enables or disables admin & monitoring REST endpoints under `/v4/trackcache/...`. |
+| `rest-api.password` | String | `""` | Optional password for TrackCache REST API (`X-TrackCache-Password: <password>`). Ignored if empty. |
+| `redis.host` | String | `"localhost"` | Redis server hostname or IP address. |
+| `redis.port` | Integer | `6379` | Redis server port. |
+| `redis.password` | String | `""` | Redis authentication password (leave empty if none). |
+| `redis.database` | Integer | `0` | Redis database index (0-15). |
+| `redis.ssl` | Boolean | `false` | Enables SSL/TLS encryption for Redis connections (e.g. AWS ElastiCache / Redis Cloud). |
+| `redis.key-prefix` | String | `"trackcache:"` | Namespace prefix prepended to all Redis keys to avoid collisions with other apps. |
+| `redis.ttl.enabled` | Boolean | `true` | Enables or disables TTL expiration (`false` = persistent cache, entries never expire). |
+| `redis.ttl.hours` | Long | `24` | Cache expiration duration in hours (e.g. 24 = 1 day, 168 = 7 days). |
 | `cache-playlists` | Boolean | `true` | Caches the full playlist payload (`loadType: playlist`) under the playlist's canonical key. |
 | `cache-individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
 | `cache-empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
@@ -167,7 +173,7 @@ plugins:
 
 #### 💡 Deep Dive: How the Caching Flags Differ
 
-1. **`key-prefix` (Redis Key Namespacing)**
+1. **`redis.key-prefix` (Redis Key Namespacing)**
    - Prepends a namespace string to every key stored in Redis (e.g., `trackcache:youtube:track:dQw4w9WgXcQ`).
    - Prevents key collisions when sharing a Redis instance with other services and allows easy batch inspection or purging via `redis-cli --scan --pattern 'trackcache:*'`.
 
@@ -190,8 +196,8 @@ plugins:
 TrackCache provides administrative and monitoring endpoints under `/v4/trackcache/...`:
 
 > [!NOTE]
-> **Authentication:** If `rest-api-password` is configured in `application.yml`, include the `X-TrackCache-Password` header:
-> `X-TrackCache-Password: <your-rest-api-password>`. If `rest-api-password` is empty (default), authentication is disabled.
+> **Authentication:** If `rest-api.password` is configured in `application.yml`, include the `X-TrackCache-Password` header:
+> `X-TrackCache-Password: <your-rest-api-password>`. If `rest-api.password` is empty (default), authentication is disabled.
 
 ### 1. View Cache Statistics
 ```http
@@ -208,7 +214,8 @@ X-TrackCache-Password: my-secret-rest-api-password
   "puts": 348,
   "errors": 0,
   "hitRatioPercent": 82.0,
-  "ttlMinutes": 1440,
+  "ttlEnabled": true,
+  "ttlHours": 24,
   "keyPrefix": "trackcache:",
   "totalCachedKeys": 1560
 }

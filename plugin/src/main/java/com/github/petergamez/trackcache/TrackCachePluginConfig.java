@@ -41,13 +41,4 @@ public class TrackCachePluginConfig extends TrackCacheConfig {
     public void setRestApi(RestApiConfig restApi) {
         this.restApi = restApi;
     }
-
-    // Convenience delegates
-    public boolean isRestApi() {
-        return restApi != null && restApi.isEnabled();
-    }
-
-    public String getRestApiPassword() {
-        return restApi != null ? restApi.getPassword() : "";
-    }
 }

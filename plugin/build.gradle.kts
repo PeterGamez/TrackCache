@@ -34,8 +34,6 @@ tasks {
 
 dependencies {
     implementation(project(":main"))
-    implementation("org.springframework.boot:spring-boot-starter-data-redis:3.2.5")
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.16.1")
 }
 
 publishing {

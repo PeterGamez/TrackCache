@@ -30,8 +30,9 @@ public class RedisConfiguration {
         if (!config.isEnabled()) {
             log.info("TrackCache is disabled in configuration.");
         }
+        TrackCacheConfig.RedisConfig redis = config.getRedis();
         log.info("Initializing Lettuce Redis connection to {}:{} (db: {}, ssl: {})",
-                config.getHost(), config.getPort(), config.getDatabase(), config.isSsl());
+                redis.getHost(), redis.getPort(), redis.getDatabase(), redis.isSsl());
         return createConnectionFactory(config);
     }
 
@@ -41,13 +42,14 @@ public class RedisConfiguration {
     }
 
     public static LettuceConnectionFactory createConnectionFactory(TrackCacheConfig config) {
+        TrackCacheConfig.RedisConfig redis = config.getRedis();
         RedisStandaloneConfiguration serverConfig = new RedisStandaloneConfiguration();
-        serverConfig.setHostName(config.getHost());
-        serverConfig.setPort(config.getPort());
-        serverConfig.setDatabase(config.getDatabase());
+        serverConfig.setHostName(redis.getHost());
+        serverConfig.setPort(redis.getPort());
+        serverConfig.setDatabase(redis.getDatabase());
 
-        if (config.getPassword() != null && !config.getPassword().trim().isEmpty()) {
-            serverConfig.setPassword(RedisPassword.of(config.getPassword().trim()));
+        if (redis.getPassword() != null && !redis.getPassword().trim().isEmpty()) {
+            serverConfig.setPassword(RedisPassword.of(redis.getPassword().trim()));
         }
 
         SocketOptions socketOptions = SocketOptions.builder()
@@ -64,7 +66,7 @@ public class RedisConfiguration {
                 .commandTimeout(Duration.ofSeconds(2))
                 .clientOptions(clientOptions);
 
-        if (config.isSsl()) {
+        if (redis.isSsl()) {
             builder.useSsl();
         }
 

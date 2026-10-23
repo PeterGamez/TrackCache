@@ -41,13 +41,17 @@ public class TrackCacheService {
         this.objectMapper = objectMapper;
     }
 
+    public boolean isEnabled() {
+        return config.isEnabled();
+    }
+
     public String getCachedResult(String identifier) {
         if (!config.isEnabled() || !isRedisAvailable()) {
             return null;
         }
 
         try {
-            String fullKey = normalizer.toFullCacheKey(identifier, config.getKeyPrefix());
+            String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
             String cached = redisTemplate.opsForValue().get(fullKey);
 
             if (cached != null && !cached.isEmpty()) {
@@ -106,7 +110,7 @@ public class TrackCacheService {
                 return;
             }
 
-            String fullKey = normalizer.toFullCacheKey(identifier, config.getKeyPrefix());
+            String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
             Duration ttl = getTtlDuration();
 
             if (ttl != null) {
@@ -116,7 +120,7 @@ public class TrackCacheService {
             }
             puts.incrementAndGet();
             log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
-                    identifier, loadType, fullKey, ttl != null ? (config.getTtlHours() + "h") : "persistent");
+                    identifier, loadType, fullKey, ttl != null ? (config.getRedis().getTtl().getHours() + "h") : "persistent");
 
             if ("playlist".equalsIgnoreCase(loadType) && config.isCacheIndividualPlaylistTracks()) {
                 decomposeAndCachePlaylistTracks(rootNode, ttl);
@@ -164,7 +168,7 @@ public class TrackCacheService {
                 singleTrackResult.set("data", trackNode);
 
                 String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
-                String fullTrackKey = config.getKeyPrefix() + trackCanonicalKey;
+                String fullTrackKey = config.getRedis().getKeyPrefix() + trackCanonicalKey;
 
                 if (ttl != null) {
                     redisTemplate.opsForValue().set(fullTrackKey, singleTrackJson, ttl);
@@ -184,7 +188,7 @@ public class TrackCacheService {
     public boolean evict(String identifier) {
         if (!isRedisAvailable()) return false;
         try {
-            String fullKey = normalizer.toFullCacheKey(identifier, config.getKeyPrefix());
+            String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
             Boolean deleted = redisTemplate.delete(fullKey);
             return Boolean.TRUE.equals(deleted);
         } catch (Exception e) {
@@ -196,7 +200,7 @@ public class TrackCacheService {
     public long clearAll() {
         if (!isRedisAvailable()) return 0;
         try {
-            Set<String> keys = redisTemplate.keys(config.getKeyPrefix() + "*");
+            Set<String> keys = redisTemplate.keys(config.getRedis().getKeyPrefix() + "*");
             if (keys != null && !keys.isEmpty()) {
                 Long deleted = redisTemplate.delete(keys);
                 return deleted != null ? deleted : 0;
@@ -222,13 +226,13 @@ public class TrackCacheService {
         stats.put("puts", puts.get());
         stats.put("errors", errors.get());
         stats.put("hitRatioPercent", Math.round(hitRatio * 100.0) / 100.0);
-        stats.put("ttlEnabled", config.isTtlEnabled());
-        stats.put("ttlHours", config.getTtlHours());
-        stats.put("keyPrefix", config.getKeyPrefix());
+        stats.put("ttlEnabled", config.getRedis().getTtl().isEnabled());
+        stats.put("ttlHours", config.getRedis().getTtl().getHours());
+        stats.put("keyPrefix", config.getRedis().getKeyPrefix());
 
         try {
             if (isRedisAvailable()) {
-                Set<String> keys = redisTemplate.keys(config.getKeyPrefix() + "*");
+                Set<String> keys = redisTemplate.keys(config.getRedis().getKeyPrefix() + "*");
                 stats.put("totalCachedKeys", keys != null ? keys.size() : 0);
             } else {
                 stats.put("totalCachedKeys", "unavailable");
@@ -241,10 +245,11 @@ public class TrackCacheService {
     }
 
     private Duration getTtlDuration() {
-        if (!config.isTtlEnabled() || config.getTtlHours() <= 0) {
+        TrackCacheConfig.RedisConfig.TtlConfig ttl = config.getRedis().getTtl();
+        if (!ttl.isEnabled() || ttl.getHours() <= 0) {
             return null; // TTL disabled: persistent in Redis
         }
-        return Duration.ofHours(config.getTtlHours());
+        return Duration.ofHours(ttl.getHours());
     }
 
     private boolean isRedisAvailable() {

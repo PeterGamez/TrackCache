@@ -184,7 +184,7 @@ public class UrlNormalizer {
         // 5. Check SoundCloud
         Matcher scMatcher = SOUNDCLOUD_URL_PATTERN.matcher(query);
         if (scMatcher.find()) {
-            String cleanPath = stripTrackingFromPath(scMatcher.group(1));
+            String cleanPath = stripTrackingAndTrailingSlash(scMatcher.group(1));
             if (cleanPath.contains("/sets/")) {
                 return "soundcloud:playlist:" + cleanPath;
             }
@@ -195,7 +195,7 @@ public class UrlNormalizer {
         Matcher appleMatcher = APPLE_MUSIC_URL_PATTERN.matcher(query);
         if (appleMatcher.find()) {
             String type = appleMatcher.group(1).toLowerCase();
-            String idOrPath = stripTrackingFromPath(appleMatcher.group(2));
+            String idOrPath = stripTrackingAndTrailingSlash(appleMatcher.group(2));
             return "applemusic:" + type + ":" + idOrPath;
         }
 
@@ -263,17 +263,6 @@ public class UrlNormalizer {
         }
 
         return "youtube:" + stripTrackingAndTrailingSlash(url);
-    }
-
-    private String stripTrackingFromPath(String path) {
-        int queryIndex = path.indexOf('?');
-        if (queryIndex != -1) {
-            path = path.substring(0, queryIndex);
-        }
-        while (path.endsWith("/")) {
-            path = path.substring(0, path.length() - 1);
-        }
-        return path;
     }
 
     private String normalizeGenericUrl(String urlString) {

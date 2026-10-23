@@ -118,63 +118,6 @@ public class TrackCacheConfig {
         this.enabled = enabled;
     }
 
-    // Convenience delegates
-    public String getHost() {
-        return redis != null ? redis.getHost() : "localhost";
-    }
-
-    public void setHost(String host) {
-        if (redis != null) redis.setHost(host);
-    }
-
-    public int getPort() {
-        return redis != null ? redis.getPort() : 6379;
-    }
-
-    public void setPort(int port) {
-        if (redis != null) redis.setPort(port);
-    }
-
-    public String getPassword() {
-        return redis != null ? redis.getPassword() : "";
-    }
-
-    public void setPassword(String password) {
-        if (redis != null) redis.setPassword(password);
-    }
-
-    public int getDatabase() {
-        return redis != null ? redis.getDatabase() : 0;
-    }
-
-    public void setDatabase(int database) {
-        if (redis != null) redis.setDatabase(database);
-    }
-
-    public boolean isSsl() {
-        return redis != null && redis.isSsl();
-    }
-
-    public void setSsl(boolean ssl) {
-        if (redis != null) redis.setSsl(ssl);
-    }
-
-    public boolean isTtlEnabled() {
-        return redis != null && redis.getTtl() != null && redis.getTtl().isEnabled();
-    }
-
-    public long getTtlHours() {
-        return redis != null && redis.getTtl() != null ? redis.getTtl().getHours() : 24;
-    }
-
-    public String getKeyPrefix() {
-        return redis != null ? redis.getKeyPrefix() : "trackcache:";
-    }
-
-    public void setKeyPrefix(String keyPrefix) {
-        if (redis != null) redis.setKeyPrefix(keyPrefix);
-    }
-
     public boolean isCachePlaylists() {
         return cachePlaylists;
     }

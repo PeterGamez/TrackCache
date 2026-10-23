@@ -24,6 +24,10 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        if (!trackCacheService.isEnabled()) {
+            return true;
+        }
+
         String uri = request.getRequestURI();
 
         if (!uri.endsWith(LOADTRACKS_PATH)) {

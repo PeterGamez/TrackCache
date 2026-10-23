@@ -28,9 +28,6 @@ public class TrackCacheRestHandler {
     @GetMapping("/stats")
     public ResponseEntity<Map<String, Object>> getStats(
             @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
-        if (!config.isRestApi()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
@@ -41,9 +38,6 @@ public class TrackCacheRestHandler {
     public ResponseEntity<Map<String, Object>> resolve(
             @RequestParam("identifier") String identifier,
             @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
-        if (!config.isRestApi()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
@@ -63,9 +57,6 @@ public class TrackCacheRestHandler {
     public ResponseEntity<Map<String, Object>> clear(
             @RequestParam(value = "identifier", required = false) String identifier,
             @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
-        if (!config.isRestApi()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
@@ -88,7 +79,7 @@ public class TrackCacheRestHandler {
     }
 
     private boolean isAuthorized(String trackCachePassword) {
-        String requiredPassword = config.getRestApiPassword();
+        String requiredPassword = config.getRestApi().getPassword();
         if (requiredPassword == null || requiredPassword.trim().isEmpty()) {
             return true; // Optional: disabled if not specified
         }

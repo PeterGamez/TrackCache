@@ -105,22 +105,7 @@ When a client queries a playlist (such as YouTube Playlist or Spotify Playlist):
 Add the following block to your Lavalink `application.yml`:
 
 ```yaml
-server:
-  port: 2333
-  address: 0.0.0.0
-
 lavalink:
-  server:
-    password: "youshallnotpass"
-    sources:
-      youtube: true
-      bandcamp: true
-      soundcloud: true
-      twitch: true
-      vimeo: true
-      http: true
-      local: false
-    bufferDurationMs: 400
   plugins:
     - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.0.0"
       repository: "https://jitpack.io" # Or place the .jar file directly into the plugins/ directory
@@ -179,21 +164,26 @@ plugins:
 
 #### 💡 Deep Dive: How the Caching Flags Differ
 
-1. **`redis.key-prefix` (Redis Key Namespacing)**
-   - Prepends a namespace string to every key stored in Redis (e.g., `trackcache:youtube:track:dQw4w9WgXcQ`).
-   - Prevents key collisions when sharing a Redis instance with other services and allows easy batch inspection or purging via `redis-cli --scan --pattern 'trackcache:*'`.
+1. **Playlists (`cache.playlists` vs. `cache.individual-playlist-tracks`)**
+   - **`cache.playlists: true` (Full Playlist Caching):** Caches the entire playlist response as a composite object under `trackcache:youtube:playlist:<id>`. When users re-request the exact same playlist URL, it resolves instantly in `< 1ms`.
+   - **`cache.individual-playlist-tracks: true` (Track Pre-warming):** Decomposes every track inside that playlist and independently caches each song under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song that happened to be in that playlist, it results in an instant **Cache HIT** without querying external providers.
 
-2. **`cache-playlists` vs. `cache-individual-playlist-tracks` (Bulk vs. Pre-warming)**
-   - **`cache-playlists: true`:** Caches the entire playlist response as a single composite object under `trackcache:youtube:playlist:<id>`. When users re-request the exact same playlist URL, it resolves instantly in `< 1ms`.
-   - **`cache-individual-playlist-tracks: true`:** Decomposes every track inside that playlist and independently caches each one under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song that happened to be in that playlist, it results in an instant **Cache HIT** without querying external providers.
+2. **Searches (`cache.searches` vs. `cache.individual-search-tracks`)**
+   - **`cache.searches: true` (Search Query Caching):** Caches the search query result itself (e.g., `ytsearch:faded alan walker`) under `trackcache:youtube:search:faded alan walker` with the shorter search TTL (default: 2 hours). Repeated queries for popular terms return cached results immediately.
+   - **`cache.individual-search-tracks: true` (Search Track Pre-warming):** Decomposes all individual tracks returned from search queries and pre-warms each song into cache with the full track TTL (default: 72 hours). If any user later pastes the direct URL of one of those search result songs, it resolves instantly from track cache without making an external request!
 
-3. **`cache-empty` (Not Found / 404 Caching)**
+3. **Empty / 404 Results (`cache.empty`)**
    - **`false` (Recommended):** Avoids caching unavailable, deleted, or mistyped identifiers. If a track becomes available later or the user fixes a typo, Lavalink will retry cleanly.
-   - **`true`:** Caches empty responses. Useful in high-traffic environments to prevent DoS attacks or repeated lookup bursts on non-existent identifiers.
+   - **`true` (Negative Caching):** Caches empty responses. Useful in high-traffic environments to prevent DoS attacks or repeated lookup bursts on non-existent identifiers.
 
-4. **`cache-searches` (Search Query Caching)**
-   - **`true` (Recommended):** Caches search queries like `ytsearch:faded alan walker` or `spsearch:bad guy`. Repeated queries for popular track names return cached results immediately.
-   - **`false`:** Bypasses cache for search prefixes, ensuring users always receive live search rankings directly from source providers.
+> [!TIP]
+> **Redis Key Namespacing (`redis.key-prefix`):**
+> All keys in Redis are prefixed with the configured namespace (default: `trackcache:`), for example:
+> - Individual Track: `trackcache:youtube:track:dQw4w9WgXcQ`
+> - Playlist: `trackcache:youtube:playlist:PLrEnWoR732-B4fZuq_wF...`
+> - Search Query: `trackcache:youtube:search:faded alan walker`
+> 
+> This prevents key collisions when sharing a Redis instance with other applications and allows easy batch inspection or purging via `redis-cli --scan --pattern 'trackcache:*'`.
 
 ---
 

@@ -94,6 +94,18 @@ public class TrackCacheService {
                 return;
             }
 
+            if ("search".equalsIgnoreCase(loadType) && !config.isCacheSearches()) {
+                log.debug("Skipping caching search response for: '{}'", identifier);
+                return;
+            }
+            if ("playlist".equalsIgnoreCase(loadType) && !config.isCachePlaylists()) {
+                log.debug("Skipping caching full playlist response for: '{}'", identifier);
+                if (config.isCacheIndividualPlaylistTracks()) {
+                    decomposeAndCachePlaylistTracks(rootNode, Duration.ofMinutes(config.getTtlMinutes()));
+                }
+                return;
+            }
+
             String fullKey = normalizer.toFullCacheKey(identifier, config.getKeyPrefix());
             Duration ttl = Duration.ofMinutes(config.getTtlMinutes());
 

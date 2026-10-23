@@ -10,7 +10,8 @@ By intercepting requests before they reach external audio providers (YouTube, Sp
 
 ```mermaid
 flowchart TD
-    Client(["🎧 Client / Discord Bot"]) -->|"1. GET /v4/loadtracks?identifier=..."| Interceptor["🛡️ TrackCacheRestInterceptor"]
+    Client(["🎧 Client / Discord Bot"]) -->|"1. GET /v4/loadtracks?identifier=..."| LavalinkServer["🖥️ Lavalink Server (v4)"]
+    LavalinkServer -->|"Route Request"| Interceptor["🛡️ TrackCacheRestInterceptor"]
 
     subgraph Core ["Core Library (:main) - Standalone Lavaplayer Ready"]
         Normalizer["🔍 UrlNormalizer<br/>(Canonical Key)"]
@@ -36,11 +37,13 @@ flowchart TD
         ResponseAdvice -->|"3. Cache Result"| CacheService
     end
 
-    ShortCircuit -->|"Instant JSON"| Client
-    ResponseAdvice -->|"Stream Result<br/><code>X-TrackCache-Status: MISS</code>"| Client
+    ShortCircuit -->|"Instant JSON"| LavalinkServer
+    ResponseAdvice -->|"Stream Result"| LavalinkServer
+    LavalinkServer -->|"Response: 200 OK"| Client
 
     %% Custom Styling
     classDef clientNode fill:#1f2937,stroke:#374151,stroke-width:2px,color:#f9fafb;
+    classDef serverNode fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
     classDef hitNode fill:#064e3b,stroke:#059669,stroke-width:2px,color:#ecfdf5;
     classDef missNode fill:#7f1d1d,stroke:#dc2626,stroke-width:2px,color:#fef2f2;
     classDef serviceNode fill:#1e3a8a,stroke:#2563eb,stroke-width:2px,color:#eff6ff;
@@ -48,6 +51,7 @@ flowchart TD
     classDef coreNode fill:#312e81,stroke:#6366f1,stroke-width:2px,color:#eef2ff;
 
     class Client clientNode;
+    class LavalinkServer serverNode;
     class ShortCircuit hitNode;
     class LavalinkResolvers missNode;
     class Interceptor,ResponseAdvice,CacheService,PluginConfig serviceNode;
@@ -97,27 +101,80 @@ When a client queries a playlist (such as YouTube Playlist or Spotify Playlist):
 Add the following block to your Lavalink `application.yml`:
 
 ```yaml
+server:
+  port: 2333
+  address: 0.0.0.0
+
 lavalink:
+  server:
+    password: "youshallnotpass"
+    sources:
+      youtube: true
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+    bufferDurationMs: 400
   plugins:
     - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.0.0"
       repository: "https://jitpack.io" # Or place the .jar file directly into the plugins/ directory
 
 plugins:
   trackcache:
-    enabled: true
-    rest-api: true                     # Enable or disable /v4/trackcache REST endpoints (default: true)
+    enabled: true               # Enable or disable plugin (default: true)
+    rest-api: true              # Enable or disable /v4/trackcache REST endpoints (default: true)
+    
     host: "localhost"
     port: 6379
     password: ""
     database: 0
     ssl: false
-    ttl-minutes: 1440                  # Cache duration in minutes (default: 24 hours)
-    key-prefix: "lavalink:trackcache:"   # Redis key prefix
-    cache-playlists: true              # Cache full playlist responses
+    ttl-minutes: 1440           # Cache duration in minutes (default: 24 hours)
+    key-prefix: "trackcache:"   # Redis key prefix
+    
+    cache-playlists: true       # Cache full playlist responses
     cache-individual-playlist-tracks: true # Decompose and cache individual tracks from playlists
-    cache-empty: false                 # Do not cache empty/404 results
-    cache-searches: true               # Cache search query results
+    cache-empty: false          # Do not cache empty/404 results
+    cache-searches: true        # Cache search query results
 ```
+
+### 🔧 Configuration Options Breakdown
+
+| Setting | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | Boolean | `true` | Enables or disables the entire TrackCache caching system. |
+| `rest-api` | Boolean | `true` | Enables or disables admin & monitoring REST endpoints under `/v4/trackcache/...`. |
+| `host` | String | `"localhost"` | Redis server hostname or IP address. |
+| `port` | Integer | `6379` | Redis server port. |
+| `password` | String | `""` | Redis authentication password (leave empty if none). |
+| `database` | Integer | `0` | Redis database index (0-15). |
+| `ssl` | Boolean | `false` | Enables SSL/TLS encryption for Redis connections (e.g. AWS ElastiCache / Redis Cloud). |
+| `ttl-minutes` | Long | `1440` | Cache expiration time in minutes (default: 1440 = 24 hours). |
+| `key-prefix` | String | `"trackcache:"` | Namespace prefix prepended to all Redis keys to avoid collisions with other apps. |
+| `cache-playlists` | Boolean | `true` | Caches the full playlist payload (`loadType: playlist`) under the playlist's canonical key. |
+| `cache-individual-playlist-tracks` | Boolean | `true` | Decomposes tracks within a playlist and pre-warms cache for each individual track. |
+| `cache-empty` | Boolean | `false` | Caches `loadType: empty` (404/not found) responses. Keep `false` to avoid caching transient failures. |
+| `cache-searches` | Boolean | `true` | Caches search queries (e.g., `ytsearch:...`, `scsearch:...`). |
+
+#### 💡 Deep Dive: How the Caching Flags Differ
+
+1. **`key-prefix` (Redis Key Namespacing)**
+   - Prepends a namespace string to every key stored in Redis (e.g., `trackcache:youtube:track:dQw4w9WgXcQ`).
+   - Prevents key collisions when sharing a Redis instance with other services and allows easy batch inspection or purging via `redis-cli --scan --pattern 'trackcache:*'`.
+
+2. **`cache-playlists` vs. `cache-individual-playlist-tracks` (Bulk vs. Pre-warming)**
+   - **`cache-playlists: true`:** Caches the entire playlist response as a single composite object under `trackcache:youtube:playlist:<id>`. When users re-request the exact same playlist URL, it resolves instantly in `< 1ms`.
+   - **`cache-individual-playlist-tracks: true`:** Decomposes every track inside that playlist and independently caches each one under `trackcache:youtube:track:<track_id>`. If any user later requests an individual song that happened to be in that playlist, it results in an instant **Cache HIT** without querying external providers.
+
+3. **`cache-empty` (Not Found / 404 Caching)**
+   - **`false` (Recommended):** Avoids caching unavailable, deleted, or mistyped identifiers. If a track becomes available later or the user fixes a typo, Lavalink will retry cleanly.
+   - **`true`:** Caches empty responses. Useful in high-traffic environments to prevent DoS attacks or repeated lookup bursts on non-existent identifiers.
+
+4. **`cache-searches` (Search Query Caching)**
+   - **`true` (Recommended):** Caches search queries like `ytsearch:faded alan walker` or `spsearch:bad guy`. Repeated queries for popular track names return cached results immediately.
+   - **`false`:** Bypasses cache for search prefixes, ensuring users always receive live search rankings directly from source providers.
 
 ---
 

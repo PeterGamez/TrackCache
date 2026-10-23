@@ -13,7 +13,7 @@ public class TrackCacheConfig {
     private int database = 0;
     private boolean ssl = false;
     private long ttlMinutes = 1440; // 24 hours
-    private String keyPrefix = "lavalink:trackcache:";
+    private String keyPrefix = "trackcache:";
 
     private boolean cachePlaylists = true;
     private boolean cacheIndividualPlaylistTracks = true;

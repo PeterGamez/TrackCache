@@ -10,36 +10,42 @@ By intercepting requests before they reach external audio providers (YouTube, Sp
 
 ```mermaid
 flowchart TD
-    Client(["🎧 Client / Discord Bot"]) -->|"1. GET /v4/loadtracks?identifier=..."| LavalinkServer["🖥️ Lavalink Server (v4)"]
-    LavalinkServer -->|"Route Request"| Interceptor["🛡️ TrackCacheRestInterceptor"]
+    Client(["🎧 Client / Discord Bot"]) -->|"GET /v4/loadtracks"| LavalinkServer["🖥️ Lavalink Server (v4)"]
+
+    subgraph Plugin ["Lavalink Plugin (:plugin)"]
+        Interceptor["🛡️ TrackCacheRestInterceptor"]
+        Resolvers["🌐 Lavalink Resolvers<br/><i>(YouTube / Spotify / SoundCloud)</i>"]
+        ResponseAdvice["📦 TrackCacheResponseBodyAdvice"]
+    end
 
     subgraph Core ["Core Library (:main) - Standalone Lavaplayer Ready"]
         Normalizer["🔍 UrlNormalizer<br/>(Canonical Key)"]
-        CacheService["⚡ TrackCacheService<br/>(Redis Cache Engine)"]
-        RedisDB[("🗄️ Redis Server<br/>(Configured TTL)")]
+        CacheService["⚡ TrackCacheService<br/>(Cache Engine)"]
         Normalizer -->|"Key"| CacheService
-        CacheService <-->|"Read / Write"| RedisDB
     end
 
-    subgraph Plugin ["Lavalink Plugin (:plugin)"]
-        PluginConfig["⚙️ TrackCachePluginConfig<br/>(Spring: plugins.trackcache)"]
-        Interceptor -->|"1. Normalize"| Normalizer
-        Interceptor -->|"2. Query Cache"| CacheService
+    RedisDB[("🗄️ Redis Server<br/>(Configured TTL)")]
 
-        %% Cache HIT Branch
-        CacheService -->|"✅ Cache HIT"| ShortCircuit["⚡ Short-Circuit Response<br/><b>Status: 200 OK</b><br/><code>X-TrackCache-Status: HIT</code><br/><i>(Latency &lt; 1ms, 0 external calls)</i>"]
+    %% Request & Query Flow
+    LavalinkServer -->|"1. Intercept Request"| Interceptor
+    Interceptor -->|"2. Normalize Identifier"| Normalizer
+    Interceptor -->|"3. Check Cache"| CacheService
 
-        %% Cache MISS Branch
-        CacheService -->|"❌ Cache MISS"| LavalinkResolvers["🌐 Lavalink Resolvers<br/><i>(YouTube / Spotify / SoundCloud)</i>"]
+    %% Cache HIT Branch
+    CacheService -->|"✅ Cache HIT"| Interceptor
+    Interceptor -->|"⚡ Short-Circuit (Status: 200 OK)"| LavalinkServer
 
-        LavalinkResolvers -->|"Resolved LoadResult"| ResponseAdvice["📦 TrackCacheResponseBodyAdvice"]
+    %% Cache MISS Branch
+    CacheService -.->|"❌ Cache MISS"| Resolvers
+    Resolvers -->|"LoadResult"| ResponseAdvice
+    ResponseAdvice -->|"Async Cache Put"| CacheService
+    ResponseAdvice -->|"Stream Result (Status: 200 OK)"| LavalinkServer
 
-        ResponseAdvice -->|"3. Cache Result"| CacheService
-    end
+    %% Response to Client
+    LavalinkServer -->|"Final JSON Response"| Client
 
-    ShortCircuit -->|"Instant JSON"| LavalinkServer
-    ResponseAdvice -->|"Stream Result"| LavalinkServer
-    LavalinkServer -->|"Response: 200 OK"| Client
+    %% Database Connection
+    CacheService <-->|"Lettuce Redis I/O"| RedisDB
 
     %% Custom Styling
     classDef clientNode fill:#1f2937,stroke:#374151,stroke-width:2px,color:#f9fafb;
@@ -52,11 +58,10 @@ flowchart TD
 
     class Client clientNode;
     class LavalinkServer serverNode;
-    class ShortCircuit hitNode;
-    class LavalinkResolvers missNode;
-    class Interceptor,ResponseAdvice,CacheService,PluginConfig serviceNode;
+    class Interceptor,ResponseAdvice serviceNode;
+    class Resolvers missNode;
+    class Normalizer,CacheService coreNode;
     class RedisDB dbNode;
-    class Normalizer coreNode;
 ```
 
 ### Why TrackCache is Faster and Safer:

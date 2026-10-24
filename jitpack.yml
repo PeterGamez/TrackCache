@@ -1,3 +1,5 @@
+before_install:
+  - git config --global --add safe.directory /build
 jdk:
   - openjdk17
 install:

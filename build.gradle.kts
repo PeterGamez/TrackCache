@@ -34,7 +34,7 @@ fun versionFromGit(): Pair<String, Boolean> {
             .list()
             .find { it.commit.id == git.head().id }
 
-        val clean = git.status().isClean || System.getenv("CI") != null
+        val clean = git.status().isClean || System.getenv("CI") != null || System.getenv("JITPACK") != null
         if (!clean) {
             logger.lifecycle("Git state is dirty, version is a snapshot.")
         }

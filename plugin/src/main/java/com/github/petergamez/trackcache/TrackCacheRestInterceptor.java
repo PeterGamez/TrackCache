@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
@@ -23,13 +24,10 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
     private final TrackCacheService trackCacheService;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public TrackCacheRestInterceptor(TrackCacheService trackCacheService, ObjectMapper objectMapper) {
         this.trackCacheService = trackCacheService;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
-    }
-
-    public TrackCacheRestInterceptor(TrackCacheService trackCacheService) {
-        this(trackCacheService, new ObjectMapper());
     }
 
     @Override

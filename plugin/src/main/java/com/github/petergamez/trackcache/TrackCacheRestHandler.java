@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -103,9 +105,9 @@ public class TrackCacheRestHandler {
         if (trackCachePassword == null) {
             return false;
         }
-        return java.security.MessageDigest.isEqual(
-                requiredPassword.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                trackCachePassword.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        return MessageDigest.isEqual(
+                requiredPassword.trim().getBytes(StandardCharsets.UTF_8),
+                trackCachePassword.trim().getBytes(StandardCharsets.UTF_8)
         );
     }
 

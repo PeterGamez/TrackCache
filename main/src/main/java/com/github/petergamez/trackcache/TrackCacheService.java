@@ -249,14 +249,12 @@ public class TrackCacheService implements AutoCloseable {
                     continue;
                 }
 
-                sanitizeTrackNode(trackNode);
-
                 ObjectNode singleTrackResult = objectMapper.createObjectNode();
                 singleTrackResult.put("loadType", "track");
                 singleTrackResult.set("data", trackNode);
 
                 String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
-                String fullTrackKey = normalizer.toFullCacheKey(trackCanonicalKey, config.getRedis().getKeyPrefix());
+                String fullTrackKey = config.getRedis().getKeyPrefix() + trackCanonicalKey;
 
                 if (ttl != null) {
                     commands.setex(fullTrackKey, ttl.getSeconds(), singleTrackJson);

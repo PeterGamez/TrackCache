@@ -1,6 +1,7 @@
 package com.github.petergamez.trackcache;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.arbjerg.lavalink.api.RestInterceptor;
 import jakarta.servlet.http.HttpServletRequest;
@@ -75,67 +76,49 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
     }
 
     private void logLoadedResult(String identifier, String cachedJson) {
-        try {
-            JsonNode rootNode = objectMapper.readTree(cachedJson);
-            String loadType = rootNode.has("loadType") ? rootNode.get("loadType").asText() : "";
-            JsonNode dataNode = rootNode.get("data");
+        if (!log.isInfoEnabled()) {
+            return;
+        }
 
-            switch (loadType.toLowerCase(Locale.ROOT)) {
-                case "track" -> {
-                    String title = extractTrackTitle(dataNode);
-                    log.info("Loaded track {}", title);
-                }
-                case "playlist" -> {
-                    String name = "unknown";
-                    int count = 0;
-                    if (dataNode != null) {
-                        if (dataNode.has("info") && dataNode.get("info").has("name")) {
-                            name = dataNode.get("info").get("name").asText();
-                        }
-                        if (dataNode.has("tracks") && dataNode.get("tracks").isArray()) {
-                            count = dataNode.get("tracks").size();
+        try (JsonParser parser = objectMapper.getFactory().createParser(cachedJson)) {
+            String loadType = "";
+            String trackTitle = null;
+            String playlistName = "unknown";
+            int trackCount = 0;
+            String errorMessage = null;
+
+            while (parser.nextToken() != null) {
+                String fieldName = parser.currentName();
+                if ("loadType".equals(fieldName)) {
+                    loadType = parser.nextTextValue();
+                } else if ("title".equals(fieldName) && trackTitle == null) {
+                    trackTitle = parser.nextTextValue();
+                } else if ("name".equals(fieldName) && "unknown".equals(playlistName)) {
+                    playlistName = parser.nextTextValue();
+                } else if ("message".equals(fieldName) && errorMessage == null) {
+                    errorMessage = parser.nextTextValue();
+                } else if ("tracks".equals(fieldName) || "data".equals(fieldName)) {
+                    if (parser.nextToken() == JsonToken.START_ARRAY) {
+                        while (parser.nextToken() != JsonToken.END_ARRAY && parser.currentToken() != null) {
+                            if (parser.currentToken() == JsonToken.START_OBJECT) {
+                                trackCount++;
+                                parser.skipChildren();
+                            }
                         }
                     }
-                    log.info("Loaded playlist {} with {} tracks", name, count);
                 }
-                case "search" -> {
-                    int count = 0;
-                    if (dataNode != null) {
-                        if (dataNode.isArray()) {
-                            count = dataNode.size();
-                        } else if (dataNode.has("tracks") && dataNode.get("tracks").isArray()) {
-                            count = dataNode.get("tracks").size();
-                        }
-                    }
-                    log.info("Loaded search result with {} tracks", count);
-                }
+            }
+
+            switch (loadType != null ? loadType.toLowerCase(Locale.ROOT) : "") {
+                case "track" -> log.info("Loaded track {}", trackTitle != null ? trackTitle : "unknown");
+                case "playlist" -> log.info("Loaded playlist {} with {} tracks", playlistName, trackCount);
+                case "search" -> log.info("Loaded search result with {} tracks", trackCount);
                 case "empty" -> log.info("Loaded nothing");
-                case "error" -> {
-                    String message = "unknown";
-                    if (dataNode != null && dataNode.has("message")) {
-                        message = dataNode.get("message").asText();
-                    }
-                    log.error("Failed to load track with identifier {}: {}", identifier, message);
-                }
+                case "error" -> log.error("Failed to load track with identifier {}: {}", identifier, errorMessage != null ? errorMessage : "unknown");
                 default -> log.info("Loaded cached result for identifier \"{}\"", identifier);
             }
         } catch (Exception e) {
             log.info("Loaded cached result for identifier \"{}\"", identifier);
         }
-    }
-
-    private String extractTrackTitle(JsonNode trackNode) {
-        if (trackNode != null) {
-            if (trackNode.isArray() && !trackNode.isEmpty()) {
-                return extractTrackTitle(trackNode.get(0));
-            }
-            if (trackNode.has("info") && trackNode.get("info").has("title")) {
-                return trackNode.get("info").get("title").asText();
-            }
-            if (trackNode.has("title")) {
-                return trackNode.get("title").asText();
-            }
-        }
-        return "unknown";
     }
 }

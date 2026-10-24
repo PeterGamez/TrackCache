@@ -76,10 +76,6 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
     }
 
     private void logLoadedResult(String identifier, String cachedJson) {
-        if (!log.isInfoEnabled()) {
-            return;
-        }
-
         try (JsonParser parser = objectMapper.getFactory().createParser(cachedJson)) {
             String loadType = "";
             String trackTitle = null;

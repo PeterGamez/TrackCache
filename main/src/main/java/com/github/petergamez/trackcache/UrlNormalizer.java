@@ -115,6 +115,26 @@ public class UrlNormalizer {
             Pattern.CASE_INSENSITIVE
     );
 
+    // Tidal Patterns
+    private static final Pattern TIDAL_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:listen\\.|browse\\.)?tidal\\.com/(?:browse/)?(track|playlist|album)/([0-9]+)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern TIDAL_URI_PATTERN = Pattern.compile(
+            "^tidal:(track|playlist|album):([0-9]+)$",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    // Yandex Music Patterns
+    private static final Pattern YANDEX_TRACK_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?music\\.yandex\\.[a-z]+/(?:album/[0-9]+/)?track/([0-9]+)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern YANDEX_ALBUM_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?music\\.yandex\\.[a-z]+/album/([0-9]+)",
+            Pattern.CASE_INSENSITIVE
+    );
+
     // Spotify LavaSrc Recommendations & Mix Pattern
     private static final Pattern SPREC_MIX_PATTERN = Pattern.compile(
             "^mix:(track|album|artist|isrc):\\s*(.+)$",
@@ -230,12 +250,32 @@ public class UrlNormalizer {
             return "amazonmusic:" + type + ":" + id;
         }
 
-        // 9. Generic HTTP/HTTPS URL Normalization
+        // 9. Check Tidal
+        Matcher tidalUriMatcher = TIDAL_URI_PATTERN.matcher(query);
+        if (tidalUriMatcher.find()) {
+            return "tidal:" + tidalUriMatcher.group(1).toLowerCase() + ":" + tidalUriMatcher.group(2);
+        }
+        Matcher tidalUrlMatcher = TIDAL_URL_PATTERN.matcher(query);
+        if (tidalUrlMatcher.find()) {
+            return "tidal:" + tidalUrlMatcher.group(1).toLowerCase() + ":" + tidalUrlMatcher.group(2);
+        }
+
+        // 10. Check Yandex Music
+        Matcher yandexTrackMatcher = YANDEX_TRACK_URL_PATTERN.matcher(query);
+        if (yandexTrackMatcher.find()) {
+            return "yandexmusic:track:" + yandexTrackMatcher.group(1);
+        }
+        Matcher yandexAlbumMatcher = YANDEX_ALBUM_URL_PATTERN.matcher(query);
+        if (yandexAlbumMatcher.find()) {
+            return "yandexmusic:album:" + yandexAlbumMatcher.group(1);
+        }
+
+        // 11. Generic HTTP/HTTPS URL Normalization
         if (query.startsWith("http://") || query.startsWith("https://")) {
             return normalizeGenericUrl(query);
         }
 
-        // 10. Fallback for any other identifier
+        // 12. Fallback for any other identifier
         return query.replaceAll("\\s+", " ");
     }
 

@@ -100,7 +100,13 @@ public class TrackCacheRestHandler {
         if (requiredPassword == null || requiredPassword.trim().isEmpty()) {
             return true; // Optional: disabled if not specified
         }
-        return trackCachePassword != null && requiredPassword.equals(trackCachePassword.trim());
+        if (trackCachePassword == null) {
+            return false;
+        }
+        return java.security.MessageDigest.isEqual(
+                requiredPassword.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                trackCachePassword.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
     }
 
     private ResponseEntity<Map<String, Object>> unauthorizedResponse() {

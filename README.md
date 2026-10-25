@@ -263,23 +263,51 @@ GET /v4/trackcache/resolve?identifier=https://www.youtube.com/watch?v=dQw4w9WgXc
 ```
 
 ### 5. Update Configuration Dynamically (`POST` / `PATCH /v4/trackcache/config`)
-Update TTL and Cache configuration at runtime without restarting Lavalink:
+Update TTL and Cache configuration at runtime without restarting Lavalink.
 
-```http
-POST /v4/trackcache/config
-Content-Type: application/json
+> [!TIP]
+> **Partial Updates Supported:** All fields are **completely optional**. You only need to provide the specific field(s) you wish to modify — any omitted fields will remain unchanged.
 
-{
-  "ttl": {
-    "enabled": true,
-    "trackHours": 72,
-    "playlistHours": 24,
-    "searchHours": 2
-  },
-  "cache": {
-    "searches": false
+#### Examples:
+
+- **Update only track TTL (e.g., set to 7 days / 168 hours):**
+  ```http
+  PATCH /v4/trackcache/config
+  Content-Type: application/json
+
+  {
+    "ttl": {
+      "trackHours": 168
+    }
   }
-}
-```
+  ```
+
+- **Disable search caching only:**
+  ```http
+  PATCH /v4/trackcache/config
+  Content-Type: application/json
+
+  {
+    "cache": {
+      "searches": false
+    }
+  }
+  ```
+
+- **Update multiple settings at once:**
+  ```http
+  POST /v4/trackcache/config
+  Content-Type: application/json
+
+  {
+    "ttl": {
+      "trackHours": 168,
+      "playlistHours": 48
+    },
+    "cache": {
+      "searches": false
+    }
+  }
+  ```
 
 ---

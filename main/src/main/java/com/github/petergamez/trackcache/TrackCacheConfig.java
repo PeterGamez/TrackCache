@@ -1,4 +1,7 @@
 package com.github.petergamez.trackcache;
+ 
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Core configuration POJO for TrackCache Redis caching.
@@ -20,10 +23,19 @@ public class TrackCacheConfig {
         private TtlConfig ttl = new TtlConfig();
 
         public static class TtlConfig {
-            private boolean enabled = true;
-            private long trackHours = 72; // Default: 72 hours (3 days)
-            private long playlistHours = 24; // Default: 24 hours (1 day)
-            private long searchHours = 2; // Default: 2 hours
+            private volatile boolean enabled = true;
+            private volatile long trackHours = 72; // Default: 72 hours (3 days)
+            private volatile long playlistHours = 24; // Default: 24 hours (1 day)
+            private volatile long searchHours = 2; // Default: 2 hours
+
+            public Map<String, Object> toMap() {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("enabled", enabled);
+                map.put("trackHours", trackHours);
+                map.put("playlistHours", playlistHours);
+                map.put("searchHours", searchHours);
+                return map;
+            }
 
             public boolean isEnabled() {
                 return enabled;
@@ -128,11 +140,21 @@ public class TrackCacheConfig {
     }
 
     public static class CacheConfig {
-        private boolean playlists = true;
-        private boolean individualPlaylistTracks = true;
-        private boolean searches = true;
-        private boolean individualSearchTracks = true;
-        private boolean empty = false;
+        private volatile boolean playlists = true;
+        private volatile boolean individualPlaylistTracks = true;
+        private volatile boolean searches = true;
+        private volatile boolean individualSearchTracks = true;
+        private volatile boolean empty = false;
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("playlists", playlists);
+            map.put("individualPlaylistTracks", individualPlaylistTracks);
+            map.put("searches", searches);
+            map.put("individualSearchTracks", individualSearchTracks);
+            map.put("empty", empty);
+            return map;
+        }
 
         public boolean isPlaylists() {
             return playlists;

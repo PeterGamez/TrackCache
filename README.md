@@ -107,7 +107,7 @@ Add the following block to your Lavalink `application.yml`:
 ```yaml
 lavalink:
   plugins:
-    - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.0.0"
+    - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.1.3"
       repository: "https://jitpack.io" # Or place the .jar file directly into the plugins/ directory
 
 plugins:
@@ -198,7 +198,6 @@ TrackCache provides administrative and monitoring endpoints under `/v4/trackcach
 ### 1. View Cache Statistics
 ```http
 GET /v4/trackcache/stats
-X-TrackCache-Password: my-secret-rest-api-password
 ```
 **Example Response:**
 ```json
@@ -210,11 +209,6 @@ X-TrackCache-Password: my-secret-rest-api-password
   "puts": 348,
   "errors": 0,
   "hitRatioPercent": 82.0,
-  "ttlEnabled": true,
-  "ttlTrackHours": 72,
-  "ttlSearchHours": 2,
-  "ttlPlaylistHours": 24,
-  "keyPrefix": "trackcache:",
   "totalCachedKeys": 1560
 }
 ```
@@ -242,5 +236,50 @@ GET /v4/trackcache/resolve?identifier=https://www.youtube.com/watch?v=dQw4w9WgXc
   ```http
   POST /v4/trackcache/clear
   ```
+
+### 4. View Current Configuration (`/v4/trackcache/config`)
+- **Get all settings (TTL & Cache):**
+  ```http
+  GET /v4/trackcache/config
+  ```
+
+**Example Response (`GET /v4/trackcache/config`):**
+```json
+{
+  "ttl": {
+    "enabled": true,
+    "trackHours": 72,
+    "playlistHours": 24,
+    "searchHours": 2
+  },
+  "cache": {
+    "playlists": true,
+    "individualPlaylistTracks": true,
+    "searches": true,
+    "individualSearchTracks": true,
+    "empty": false
+  }
+}
+```
+
+### 5. Update Configuration Dynamically (`POST` / `PATCH /v4/trackcache/config`)
+Update TTL and Cache configuration at runtime without restarting Lavalink:
+
+```http
+POST /v4/trackcache/config
+Content-Type: application/json
+
+{
+  "ttl": {
+    "enabled": true,
+    "trackHours": 72,
+    "playlistHours": 24,
+    "searchHours": 2
+  },
+  "cache": {
+    "searches": false
+  }
+}
+```
 
 ---

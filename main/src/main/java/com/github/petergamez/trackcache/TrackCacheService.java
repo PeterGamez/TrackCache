@@ -373,11 +373,6 @@ public class TrackCacheService implements AutoCloseable {
         stats.put("puts", puts.get());
         stats.put("errors", errors.get());
         stats.put("hitRatioPercent", Math.round(hitRatio * 100.0) / 100.0);
-        stats.put("ttlEnabled", config.getRedis().getTtl().isEnabled());
-        stats.put("ttlTrackHours", config.getRedis().getTtl().getTrackHours());
-        stats.put("ttlSearchHours", config.getRedis().getTtl().getSearchHours());
-        stats.put("ttlPlaylistHours", config.getRedis().getTtl().getPlaylistHours());
-        stats.put("keyPrefix", config.getRedis().getKeyPrefix());
 
         try {
             if (isRedisAvailable()) {
@@ -554,6 +549,10 @@ public class TrackCacheService implements AutoCloseable {
         if (!track.has("userData") || track.get("userData").isNull()) {
             track.set("userData", objectMapper.createObjectNode());
         }
+    }
+
+    public TrackCacheConfig getConfig() {
+        return config;
     }
 
     @Override

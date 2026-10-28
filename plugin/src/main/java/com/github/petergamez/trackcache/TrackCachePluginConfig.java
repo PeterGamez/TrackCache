@@ -1,5 +1,6 @@
 package com.github.petergamez.trackcache;
 
+import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 

@@ -1,4 +1,4 @@
-package com.github.petergamez.trackcache;
+package com.github.petergamez.trackcache.util;
 
 import org.springframework.stereotype.Component;
 
@@ -26,7 +26,7 @@ public class UrlNormalizer {
     ));
 
     private static final String[] DEFAULT_SUBKEYS = {
-            "track:", "album:", "playlist:", "artist:", "song:", "video:", "audio:", "search:", "rec:", "isrc:"
+            "track:", "album:", "playlist:", "artist:", "song:", "video:", "audio:", "search:"
     };
 
     static {
@@ -34,7 +34,6 @@ public class UrlNormalizer {
         SEARCH_PREFIX_MAP.put("ytmsearch", "youtubemusic");
         SEARCH_PREFIX_MAP.put("scsearch", "soundcloud");
         SEARCH_PREFIX_MAP.put("spsearch", "spotify");
-        SEARCH_PREFIX_MAP.put("sprec", "spotify:rec");
         SEARCH_PREFIX_MAP.put("amzsearch", "amazonmusic");
         SEARCH_PREFIX_MAP.put("amz", "amazonmusic");
         SEARCH_PREFIX_MAP.put("amsearch", "applemusic");
@@ -56,10 +55,10 @@ public class UrlNormalizer {
         }
         PLATFORM_SUBKEYS.put("youtube", new String[]{"track:", "playlist:", "search:"});
         PLATFORM_SUBKEYS.put("youtubemusic", new String[]{"track:", "playlist:", "search:"});
-        PLATFORM_SUBKEYS.put("spotify", new String[]{"track:", "playlist:", "album:", "artist:", "search:", "rec:"});
+        PLATFORM_SUBKEYS.put("spotify", new String[]{"track:", "playlist:", "album:", "artist:", "search:"});
         PLATFORM_SUBKEYS.put("soundcloud", new String[]{"track:", "playlist:", "search:"});
         PLATFORM_SUBKEYS.put("applemusic", new String[]{"song:", "track:", "album:", "playlist:", "search:"});
-        PLATFORM_SUBKEYS.put("deezer", new String[]{"track:", "album:", "playlist:", "search:", "isrc:"});
+        PLATFORM_SUBKEYS.put("deezer", new String[]{"track:", "album:", "playlist:", "search:"});
         PLATFORM_SUBKEYS.put("amazonmusic", new String[]{"track:", "album:", "playlist:", "search:"});
         PLATFORM_SUBKEYS.put("tidal", new String[]{"track:", "album:", "playlist:", "search:"});
         PLATFORM_SUBKEYS.put("yandexmusic", new String[]{"track:", "album:", "playlist:", "search:"});
@@ -89,10 +88,6 @@ public class UrlNormalizer {
     );
     private static final Pattern SPOTIFY_URI_PATTERN = Pattern.compile(
             "^spotify:(track|playlist|album|artist):([a-zA-Z0-9]+)$",
-            Pattern.CASE_INSENSITIVE
-    );
-    private static final Pattern SPREC_MIX_PATTERN = Pattern.compile(
-            "^mix:(track|album|artist|isrc):\\s*(.+)$",
             Pattern.CASE_INSENSITIVE
     );
 
@@ -189,11 +184,6 @@ public class UrlNormalizer {
                     return normalize(rest);
                 }
 
-                // LavaSrc Spotify recommendations
-                if ("sprec".equals(prefix)) {
-                    return normalizeSpotifyRec(rest);
-                }
-
                 // Standard search prefix mapping
                 String mappedPlatform = SEARCH_PREFIX_MAP.get(prefix);
                 if (mappedPlatform != null) {
@@ -202,7 +192,10 @@ public class UrlNormalizer {
                     }
                     return buildSearchKey(mappedPlatform, rest);
                 } else if (prefix.endsWith("search") && prefix.length() > 6) {
-                    return buildSearchKey(prefix.substring(0, prefix.length() - 6), rest);
+                    String candidatePlatform = prefix.substring(0, prefix.length() - 6);
+                    if (PLATFORM_SUBKEYS.containsKey(candidatePlatform)) {
+                        return buildSearchKey(candidatePlatform, rest);
+                    }
                 }
 
                 // Client prefix fallback (e.g. youtube:dQw4w9WgXcQ, bilibili:BV1xx411c7mD)
@@ -420,36 +413,6 @@ public class UrlNormalizer {
         return false;
     }
 
-    private String normalizeSpotifyRec(String rest) {
-        Matcher mixMatcher = SPREC_MIX_PATTERN.matcher(rest);
-        if (mixMatcher.find()) {
-            String mixType = mixMatcher.group(1).toLowerCase(Locale.ROOT);
-            String target = mixMatcher.group(2).trim();
-            if (target.isEmpty()) {
-                return null;
-            }
-
-            Matcher uriMatcher = SPOTIFY_URI_PATTERN.matcher(target);
-            if (uriMatcher.find()) {
-                target = uriMatcher.group(2);
-            } else {
-                Matcher urlMatcher = SPOTIFY_URL_PATTERN.matcher(target);
-                if (urlMatcher.find()) {
-                    target = urlMatcher.group(2);
-                } else if (target.startsWith("http://") || target.startsWith("https://")) {
-                    return null;
-                }
-            }
-
-            return "spotify:rec:mix:" + mixType + ":" + target;
-        }
-
-        if (rest.startsWith("http://") || rest.startsWith("https://")) {
-            return null;
-        }
-        return "spotify:rec:" + rest;
-    }
-
     /**
      * Resolves the full Redis key including the configured prefix.
      * Prevents double prefixing if the identifier is already prefixed.
@@ -493,3 +456,4 @@ public class UrlNormalizer {
         return clean;
     }
 }
+

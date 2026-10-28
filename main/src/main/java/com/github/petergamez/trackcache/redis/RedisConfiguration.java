@@ -1,5 +1,6 @@
-package com.github.petergamez.trackcache;
+package com.github.petergamez.trackcache.redis;
 
+import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
@@ -87,3 +88,4 @@ public class RedisConfiguration {
         return client;
     }
 }
+

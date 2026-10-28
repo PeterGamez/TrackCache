@@ -1,4 +1,4 @@
-package com.github.petergamez.trackcache;
+package com.github.petergamez.trackcache.config;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -221,3 +221,4 @@ public class TrackCacheConfig {
         this.cache = cache;
     }
 }
+

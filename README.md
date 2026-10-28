@@ -20,7 +20,7 @@ flowchart TD
 
     subgraph Core ["Core Library (:main) - Standalone Lavaplayer Ready"]
         Normalizer["🔍 UrlNormalizer<br/>(Canonical Key)"]
-        CacheService["⚡ TrackCacheService<br/>(Cache Engine)"]
+        CacheService["⚡ TrackCache<br/>(Cache Engine)"]
         Normalizer -->|"Key"| CacheService
     end
 

@@ -1,6 +1,8 @@
 package com.github.petergamez.trackcache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.petergamez.trackcache.config.TrackCacheConfigUpdater;
+import com.github.petergamez.trackcache.util.UrlNormalizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,16 +29,16 @@ public class TrackCacheRestHandler {
 
     private static final Logger log = LoggerFactory.getLogger(TrackCacheRestHandler.class);
 
-    private final TrackCacheService trackCacheService;
+    private final TrackCache trackCache;
     private final UrlNormalizer normalizer;
     private final TrackCachePluginConfig config;
     private final ObjectMapper objectMapper;
 
-    public TrackCacheRestHandler(TrackCacheService trackCacheService,
+    public TrackCacheRestHandler(TrackCache trackCache,
                                  UrlNormalizer normalizer,
                                  TrackCachePluginConfig config,
                                  ObjectMapper objectMapper) {
-        this.trackCacheService = trackCacheService;
+        this.trackCache = trackCache;
         this.normalizer = normalizer;
         this.config = config;
         this.objectMapper = objectMapper;
@@ -48,7 +50,7 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        return ResponseEntity.ok(trackCacheService.getStats());
+        return ResponseEntity.ok(trackCache.getStats());
     }
 
     @GetMapping("/config")
@@ -57,7 +59,7 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        return ResponseEntity.ok(buildConfigSnapshot());
+        return ResponseEntity.ok(TrackCacheConfigUpdater.toSnapshotMap(config));
     }
 
     @RequestMapping(value = "/config", method = {RequestMethod.POST, RequestMethod.PATCH})
@@ -72,22 +74,7 @@ public class TrackCacheRestHandler {
         }
 
         try {
-            Boolean topLevelEnabled = getBoolean(body, "enabled");
-            if (topLevelEnabled != null) {
-                config.setEnabled(topLevelEnabled);
-            }
-
-            if (body.get("ttl") instanceof Map<?, ?> ttlMap) {
-                applyTtlUpdates(ttlMap, true);
-            } else {
-                applyTtlUpdates(body, false);
-            }
-
-            if (body.get("cache") instanceof Map<?, ?> cacheMap) {
-                applyCacheUpdates(cacheMap);
-            } else {
-                applyCacheUpdates(body);
-            }
+            TrackCacheConfigUpdater.applyUpdates(config, body);
         } catch (IllegalArgumentException e) {
             return badRequestResponse(e.getMessage());
         }
@@ -98,7 +85,7 @@ public class TrackCacheRestHandler {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("message", "Configuration updated successfully");
-        response.putAll(buildConfigSnapshot());
+        response.putAll(TrackCacheConfigUpdater.toSnapshotMap(config));
         return ResponseEntity.ok(response);
     }
 
@@ -114,7 +101,7 @@ public class TrackCacheRestHandler {
         if (!cacheable) {
             canonicalKey = null;
         }
-        String cachedJson = cacheable ? trackCacheService.peekCachedResult(canonicalKey) : null;
+        String cachedJson = cacheable ? trackCache.peekCachedResult(canonicalKey) : null;
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("identifier", identifier);
@@ -143,7 +130,7 @@ public class TrackCacheRestHandler {
             return unauthorizedResponse();
         }
         if (identifier != null && !identifier.trim().isEmpty()) {
-            boolean evicted = trackCacheService.evict(identifier);
+            boolean evicted = trackCache.evict(identifier);
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("success", evicted);
             response.put("message", evicted ? "Key evicted successfully" : "Key not found or error");
@@ -154,7 +141,7 @@ public class TrackCacheRestHandler {
         if (purgeOnly) {
             return ResponseEntity.ok(buildPurgeInvalidResponse());
         }
-        long count = trackCacheService.clearAll();
+        long count = trackCache.clearAll();
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("clearedCount", count);
@@ -171,116 +158,13 @@ public class TrackCacheRestHandler {
         return ResponseEntity.ok(buildPurgeInvalidResponse());
     }
 
-    private Map<String, Object> buildConfigSnapshot() {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("enabled", config.isEnabled());
-        snapshot.put("ttl", config.getRedis().getTtl().toMap());
-        snapshot.put("cache", config.getCache().toMap());
-        return snapshot;
-    }
-
     private Map<String, Object> buildPurgeInvalidResponse() {
-        long count = trackCacheService.purgeInvalidKeys();
+        long count = trackCache.purgeInvalidKeys();
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("purgedCount", count);
         response.put("message", "Purged " + count + " invalid HTTP and youtube:http keys");
         return response;
-    }
-
-    private void applyTtlUpdates(Map<?, ?> map, boolean nestedTtlMap) {
-        TrackCacheConfig.RedisConfig.TtlConfig ttl = config.getRedis().getTtl();
-
-        Boolean enabled = getBoolean(map, "ttlEnabled", "ttl-enabled", "ttl_enabled");
-        if (enabled == null && nestedTtlMap) {
-            enabled = getBoolean(map, "enabled");
-        }
-        if (enabled != null) {
-            ttl.setEnabled(enabled);
-        }
-
-        Long trackHours = getNonNegativeLong(map, "trackHours", "trackHours", "track-hours", "track_hours", "track");
-        if (trackHours != null) {
-            ttl.setTrackHours(trackHours);
-        }
-
-        Long playlistHours = getNonNegativeLong(map, "playlistHours", "playlistHours", "playlist-hours", "playlist_hours", "playlist");
-        if (playlistHours != null) {
-            ttl.setPlaylistHours(playlistHours);
-        }
-
-        Long searchHours = getNonNegativeLong(map, "searchHours", "searchHours", "search-hours", "search_hours", "search");
-        if (searchHours != null) {
-            ttl.setSearchHours(searchHours);
-        }
-    }
-
-    private void applyCacheUpdates(Map<?, ?> map) {
-        TrackCacheConfig.CacheConfig cache = config.getCache();
-
-        Boolean playlists = getBoolean(map, "playlists");
-        if (playlists != null) {
-            cache.setPlaylists(playlists);
-        }
-
-        Boolean indPlaylists = getBoolean(map, "individualPlaylistTracks", "individual-playlist-tracks", "individual_playlist_tracks");
-        if (indPlaylists != null) {
-            cache.setIndividualPlaylistTracks(indPlaylists);
-        }
-
-        Boolean searches = getBoolean(map, "searches");
-        if (searches != null) {
-            cache.setSearches(searches);
-        }
-
-        Boolean indSearches = getBoolean(map, "individualSearchTracks", "individual-search-tracks", "individual_search_tracks");
-        if (indSearches != null) {
-            cache.setIndividualSearchTracks(indSearches);
-        }
-
-        Boolean empty = getBoolean(map, "empty");
-        if (empty != null) {
-            cache.setEmpty(empty);
-        }
-    }
-
-    private Boolean getBoolean(Map<?, ?> map, String... keys) {
-        for (String k : keys) {
-            if (map.containsKey(k)) {
-                Object val = map.get(k);
-                if (val == null) continue;
-                if (val instanceof Boolean b) return b;
-                String str = val.toString().trim();
-                if ("true".equalsIgnoreCase(str)) return true;
-                if ("false".equalsIgnoreCase(str)) return false;
-                throw new IllegalArgumentException("Invalid boolean for key '" + k + "': " + val);
-            }
-        }
-        return null;
-    }
-
-    private Long getNonNegativeLong(Map<?, ?> map, String fieldLabel, String... keys) {
-        for (String k : keys) {
-            if (map.containsKey(k)) {
-                Object val = map.get(k);
-                if (val == null) continue;
-                long parsed;
-                if (val instanceof Number n) {
-                    parsed = n.longValue();
-                } else {
-                    try {
-                        parsed = Long.parseLong(val.toString().trim());
-                    } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException("Invalid number for key '" + k + "': " + val);
-                    }
-                }
-                if (parsed < 0) {
-                    throw new IllegalArgumentException(fieldLabel + " cannot be negative");
-                }
-                return parsed;
-            }
-        }
-        return null;
     }
 
     private ResponseEntity<Map<String, Object>> badRequestResponse(String message) {

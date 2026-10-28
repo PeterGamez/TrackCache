@@ -1,5 +1,6 @@
-package com.github.petergamez.trackcache;
+package com.github.petergamez.trackcache.interceptor;
 
+import com.github.petergamez.trackcache.TrackCache;
 import dev.arbjerg.lavalink.protocol.v4.LoadResult;
 import dev.arbjerg.lavalink.protocol.v4.Mapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -23,15 +24,15 @@ public class TrackCacheResponseBodyAdvice implements ResponseBodyAdvice<Object> 
 
     private static final Logger log = LoggerFactory.getLogger(TrackCacheResponseBodyAdvice.class);
 
-    private final TrackCacheService trackCacheService;
+    private final TrackCache trackCache;
 
-    public TrackCacheResponseBodyAdvice(TrackCacheService trackCacheService) {
-        this.trackCacheService = trackCacheService;
+    public TrackCacheResponseBodyAdvice(TrackCache trackCache) {
+        this.trackCache = trackCache;
     }
 
     @Override
     public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
-        return trackCacheService.isEnabled();
+        return trackCache.isEnabled();
     }
 
     @Override
@@ -67,9 +68,9 @@ public class TrackCacheResponseBodyAdvice implements ResponseBodyAdvice<Object> 
                 if (body instanceof LoadResult loadResult) {
                     Supplier<String> jsonSupplier = () -> Mapper.getJson()
                             .encodeToString(LoadResult.Companion.serializer(), loadResult);
-                    trackCacheService.cacheResult(identifier, jsonSupplier);
+                    trackCache.cacheResult(identifier, jsonSupplier);
                 } else {
-                    trackCacheService.cacheResult(identifier, body);
+                    trackCache.cacheResult(identifier, body);
                 }
             }
         } catch (Exception e) {
@@ -79,3 +80,4 @@ public class TrackCacheResponseBodyAdvice implements ResponseBodyAdvice<Object> 
         return body;
     }
 }
+

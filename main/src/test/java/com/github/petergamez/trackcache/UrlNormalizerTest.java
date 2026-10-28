@@ -1,5 +1,6 @@
 package com.github.petergamez.trackcache;
 
+import com.github.petergamez.trackcache.util.UrlNormalizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -66,10 +67,9 @@ class UrlNormalizerTest {
         assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
                 normalizer.normalize("spotify:track:4cOdK2wGLETKBW3PvgPWqT"));
 
-        // Search & Recommendations
+        // Search
         assertEquals("spotify:search:yoasobi idol", normalizer.normalize("spsearch:yoasobi idol"));
-        assertEquals("spotify:rec:mix:track:4cOdK2wGLETKBW3PvgPWqT",
-                normalizer.normalize("sprec:mix:track:4cOdK2wGLETKBW3PvgPWqT"));
+        assertNull(normalizer.normalize("sprec:mix:track:4cOdK2wGLETKBW3PvgPWqT"));
 
         // Prefix wrapping
         assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
@@ -94,8 +94,8 @@ class UrlNormalizerTest {
         // Search prefixes
         assertEquals("bilibili:search:yoasobi", normalizer.normalize("bilibilisearch:yoasobi"));
         assertEquals("bilibili:search:yoasobi", normalizer.normalize("bilisearch:yoasobi"));
-        assertEquals("bilibili:search:yoasobi", normalizer.normalize("bsearch:yoasobi"));
         assertEquals("bilibili:search:yoasobi", normalizer.normalize("bilibili:search:yoasobi"));
+        assertNull(normalizer.normalize("bsearch:yoasobi"));
 
         // Prefix wrapping
         assertEquals("bilibili:video:BV1xx411c7mD", normalizer.normalize("bilibili:BV1xx411c7mD"));
@@ -145,7 +145,7 @@ class UrlNormalizerTest {
         assertEquals("deezer:album:302127", normalizer.normalize("https://www.deezer.com/en/album/302127"));
         assertEquals("deezer:playlist:908622995", normalizer.normalize("https://www.deezer.com/playlist/908622995"));
         assertEquals("deezer:search:daft punk", normalizer.normalize("dzsearch:daft punk"));
-        assertEquals("deezer:isrc:USRC17607839", normalizer.normalize("dzisrc:USRC17607839"));
+        assertNull(normalizer.normalize("dzisrc:USRC17607839"));
     }
 
     @Test
@@ -207,7 +207,7 @@ class UrlNormalizerTest {
         assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
                 normalizer.normalize("spsearch:https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"));
         assertEquals("bilibili:video:BV1xx411c7mD",
-                normalizer.normalize("bsearch:https://www.bilibili.com/video/BV1xx411c7mD"));
+                normalizer.normalize("bilisearch:https://www.bilibili.com/video/BV1xx411c7mD"));
     }
 
     @Test

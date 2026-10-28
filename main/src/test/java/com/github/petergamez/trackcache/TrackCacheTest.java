@@ -2,14 +2,18 @@ package com.github.petergamez.trackcache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.petergamez.trackcache.config.TrackCacheConfig;
+import com.github.petergamez.trackcache.config.TrackCacheConfigUpdater;
+import com.github.petergamez.trackcache.util.TrackCacheStats;
+import com.github.petergamez.trackcache.util.UrlNormalizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class TrackCacheServiceTest {
+class TrackCacheTest {
 
-    private TrackCacheService trackCacheService;
+    private TrackCache trackCache;
     private ObjectMapper objectMapper;
 
     @BeforeEach
@@ -17,7 +21,7 @@ class TrackCacheServiceTest {
         TrackCacheConfig config = new TrackCacheConfig();
         UrlNormalizer normalizer = new UrlNormalizer();
         objectMapper = new ObjectMapper();
-        trackCacheService = new TrackCacheService(config, normalizer, objectMapper, null);
+        trackCache = new TrackCache(config, normalizer, objectMapper, null);
     }
 
     @Test
@@ -32,7 +36,7 @@ class TrackCacheServiceTest {
         ytInfo.put("title", "Never Gonna Give You Up");
         ytInfo.put("uri", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
         ytInfo.put("sourceName", "youtube");
-        assertTrue(trackCacheService.isTrackNodeCacheable(ytTrack));
+        assertTrue(trackCache.isTrackNodeCacheable(ytTrack));
 
         // 2. HTTP source track -> NOT cacheable
         ObjectNode httpTrack = objectMapper.createObjectNode();
@@ -41,14 +45,14 @@ class TrackCacheServiceTest {
         httpInfo.put("isStream", false);
         httpInfo.put("uri", "https://example.com/audio.mp3");
         httpInfo.put("sourceName", "http");
-        assertFalse(trackCacheService.isTrackNodeCacheable(httpTrack));
+        assertFalse(trackCache.isTrackNodeCacheable(httpTrack));
 
         // 3. Local source track -> NOT cacheable
         ObjectNode localTrack = objectMapper.createObjectNode();
         ObjectNode localInfo = localTrack.putObject("info");
         localInfo.put("sourceName", "local");
         localInfo.put("isStream", false);
-        assertFalse(trackCacheService.isTrackNodeCacheable(localTrack));
+        assertFalse(trackCache.isTrackNodeCacheable(localTrack));
 
         // 4. Stream track (radio, live stream) -> NOT cacheable
         ObjectNode streamTrack = objectMapper.createObjectNode();
@@ -56,7 +60,7 @@ class TrackCacheServiceTest {
         streamInfo.put("sourceName", "youtube");
         streamInfo.put("isStream", true);
         streamInfo.put("uri", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assertFalse(trackCacheService.isTrackNodeCacheable(streamTrack));
+        assertFalse(trackCache.isTrackNodeCacheable(streamTrack));
 
         // 5. Generic HTTP URI -> NOT cacheable
         ObjectNode customTrack = objectMapper.createObjectNode();
@@ -64,31 +68,31 @@ class TrackCacheServiceTest {
         customInfo.put("sourceName", "custom");
         customInfo.put("isStream", false);
         customInfo.put("uri", "https://cdn.discordapp.com/attachments/123/456/audio.mp3");
-        assertFalse(trackCacheService.isTrackNodeCacheable(customTrack));
+        assertFalse(trackCache.isTrackNodeCacheable(customTrack));
     }
 
     @Test
     void testIsCacheableIdentifier() {
-        assertFalse(trackCacheService.isCacheable("http://example.com/stream.mp3"));
-        assertFalse(trackCacheService.isCacheable("https://radio.example.org/live"));
-        assertFalse(trackCacheService.isCacheable("youtube:http://example.com"));
-        assertFalse(trackCacheService.isCacheable("https://www.youtube.com/@channel"));
+        assertFalse(trackCache.isCacheable("http://example.com/stream.mp3"));
+        assertFalse(trackCache.isCacheable("https://radio.example.org/live"));
+        assertFalse(trackCache.isCacheable("youtube:http://example.com"));
+        assertFalse(trackCache.isCacheable("https://www.youtube.com/@channel"));
 
-        assertTrue(trackCacheService.isCacheable("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
-        assertTrue(trackCacheService.isCacheable("ytsearch:rick astley"));
-        assertTrue(trackCacheService.isCacheable("youtube:track:dQw4w9WgXcQ"));
+        assertTrue(trackCache.isCacheable("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assertTrue(trackCache.isCacheable("ytsearch:rick astley"));
+        assertTrue(trackCache.isCacheable("youtube:track:dQw4w9WgXcQ"));
     }
 
     @Test
     void testGetCachedResultUncacheable() {
-        assertNull(trackCacheService.getCachedResult("http://example.com/stream.mp3"));
-        assertNull(trackCacheService.getCachedResult("youtube:http://example.com"));
-        assertNull(trackCacheService.getCachedResult("https://www.youtube.com/@channel"));
-        assertNull(trackCacheService.getCachedResult(null));
-        assertNull(trackCacheService.getCachedResult("   "));
+        assertNull(trackCache.getCachedResult("http://example.com/stream.mp3"));
+        assertNull(trackCache.getCachedResult("youtube:http://example.com"));
+        assertNull(trackCache.getCachedResult("https://www.youtube.com/@channel"));
+        assertNull(trackCache.getCachedResult(null));
+        assertNull(trackCache.getCachedResult("   "));
 
         // Uncacheable URLs must not pollute cache miss metrics
-        assertEquals(0L, trackCacheService.getStats().get("misses"));
+        assertEquals(0L, trackCache.getStats().get("misses"));
     }
 
     @Test
@@ -116,7 +120,7 @@ class TrackCacheServiceTest {
         totalTracks.put("string", false);
         totalTracks.put("content", "10");
 
-        trackCacheService.sanitizeLoadResultNode(loadResult);
+        trackCache.sanitizeLoadResultNode(loadResult);
 
         assertEquals("track", loadResult.get("loadType").asText());
         assertTrue(info.get("isSeekable").asBoolean());
@@ -135,12 +139,49 @@ class TrackCacheServiceTest {
 
     @Test
     void testGetStatsWithoutRedis() {
-        var stats = trackCacheService.getStats();
+        var stats = trackCache.getStats();
         assertNotNull(stats);
         assertEquals(true, stats.get("enabled"));
         assertEquals(false, stats.get("redisHealthy"));
         assertEquals(0L, stats.get("hits"));
         assertEquals(0L, stats.get("misses"));
         assertEquals("unavailable", stats.get("totalCachedKeys"));
+    }
+
+    @Test
+    void testTrackCacheConfigUpdater() {
+        TrackCacheConfig config = new TrackCacheConfig();
+
+        java.util.Map<String, Object> updates = new java.util.HashMap<>();
+        updates.put("enabled", "false");
+        updates.put("trackHours", "48");
+        updates.put("playlists", false);
+        updates.put("searchHours", 6);
+
+        TrackCacheConfigUpdater.applyUpdates(config, updates);
+        assertFalse(config.isEnabled());
+        assertEquals(48L, config.getRedis().getTtl().getTrackHours());
+        assertFalse(config.getCache().isPlaylists());
+        assertEquals(6L, config.getRedis().getTtl().getSearchHours());
+
+        assertThrows(IllegalArgumentException.class, () ->
+                TrackCacheConfigUpdater.applyUpdates(config, java.util.Collections.singletonMap("trackHours", -5)));
+        assertThrows(IllegalArgumentException.class, () ->
+                TrackCacheConfigUpdater.applyUpdates(config, java.util.Collections.singletonMap("enabled", "invalid_bool")));
+    }
+
+    @Test
+    void testTrackCacheStats() {
+        TrackCacheStats stats = new TrackCacheStats();
+        stats.recordHit();
+        stats.recordHit();
+        stats.recordMiss();
+        stats.recordPut();
+
+        var map = stats.createBaseStatsMap(true, true);
+        assertEquals(2L, map.get("hits"));
+        assertEquals(1L, map.get("misses"));
+        assertEquals(1L, map.get("puts"));
+        assertEquals(66.67, map.get("hitRatioPercent"));
     }
 }

@@ -26,6 +26,7 @@ dependencies {
     compileOnly("org.springframework.boot:spring-boot:3.3.0")
     compileOnly("com.fasterxml.jackson.core:jackson-databind:2.16.1")
     compileOnly("org.slf4j:slf4j-api:2.0.12")
+    compileOnly("com.google.code.findbugs:jsr305:3.0.2")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

@@ -147,10 +147,18 @@ class UrlNormalizerTest {
     void testAppleMusic() {
         assertEquals("applemusic:album:album-name/123456",
                 normalizer.normalize("https://music.apple.com/us/album/album-name/123456"));
+        assertEquals("applemusic:album:album-name/123456",
+                normalizer.normalize("https://music.apple.com/album/album-name/123456"));
+        assertEquals("applemusic:album:album-name/123456",
+                normalizer.normalize("https://music.apple.com/ca-fr/album/album-name/123456"));
         assertEquals("applemusic:song:987654",
                 normalizer.normalize("https://music.apple.com/us/album/album-name/123456?i=987654"));
+        assertEquals("applemusic:song:987654",
+                normalizer.normalize("https://music.apple.com/album/album-name/123456?i=987654"));
         assertEquals("applemusic:playlist:pl-name/pl.123",
                 normalizer.normalize("https://music.apple.com/us/playlist/pl-name/pl.123"));
+        assertEquals("applemusic:playlist:pl-name/pl.123",
+                normalizer.normalize("https://music.apple.com/playlist/pl-name/pl.123"));
         assertEquals("applemusic:search:coldplay",
                 normalizer.normalize("amsearch:coldplay"));
     }

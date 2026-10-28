@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 public class AppleMusicNormalizer implements PlatformNormalizer {
 
     private static final Pattern APPLE_MUSIC_URL_PATTERN = Pattern.compile(
-            "^(?:https?://)?music\\.apple\\.com/[a-z]{2}/(album|playlist|song)/([^?#]+)",
+            "^(?:https?://)?music\\.apple\\.com/(?:[a-z]{2}(?:-[a-z]{2})?/)?(album|playlist|song)/([^?#]+)",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern APPLE_MUSIC_I_PARAM = Pattern.compile("[?&]i=([0-9]+)");

@@ -1,6 +1,6 @@
 package com.github.petergamez.trackcache;
 
-import com.github.petergamez.trackcache.util.UrlNormalizer;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

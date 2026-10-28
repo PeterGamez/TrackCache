@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import com.github.petergamez.trackcache.redis.RedisConnectionManager;
 import io.lettuce.core.LettuceFutures;
 import io.lettuce.core.RedisFuture;

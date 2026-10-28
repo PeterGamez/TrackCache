@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import org.springframework.stereotype.Component;
 
 import java.util.Iterator;

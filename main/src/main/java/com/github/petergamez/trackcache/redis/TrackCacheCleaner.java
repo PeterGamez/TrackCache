@@ -1,8 +1,8 @@
 package com.github.petergamez.trackcache.redis;
 
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import com.github.petergamez.trackcache.util.TrackCacheStats;
-import com.github.petergamez.trackcache.util.UrlNormalizer;
 import io.lettuce.core.KeyScanCursor;
 import io.lettuce.core.ScanArgs;
 import io.lettuce.core.ScanCursor;

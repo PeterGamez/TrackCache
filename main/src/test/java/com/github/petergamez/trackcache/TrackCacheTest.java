@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import com.github.petergamez.trackcache.config.TrackCacheConfigUpdater;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import com.github.petergamez.trackcache.util.TrackCacheStats;
-import com.github.petergamez.trackcache.util.UrlNormalizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

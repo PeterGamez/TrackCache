@@ -2,7 +2,7 @@ package com.github.petergamez.trackcache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.petergamez.trackcache.config.TrackCacheConfigUpdater;
-import com.github.petergamez.trackcache.util.UrlNormalizer;
+import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

@@ -47,9 +47,13 @@ public class TrackCache implements AutoCloseable {
     private final TrackCacheCleaner cleaner;
     private final AtomicBoolean initialPurgeDone = new AtomicBoolean(false);
 
+    private static final int AVAILABLE_PROCESSORS = Runtime.getRuntime().availableProcessors();
+    private static final int CORE_THREADS = Math.max(2, Math.min(8, AVAILABLE_PROCESSORS));
+    private static final int MAX_THREADS = Math.max(4, Math.max(CORE_THREADS, AVAILABLE_PROCESSORS * 2));
+
     private final ExecutorService cacheExecutor = new ThreadPoolExecutor(
-            2,
-            Math.max(4, Runtime.getRuntime().availableProcessors()),
+            CORE_THREADS,
+            MAX_THREADS,
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(2000),

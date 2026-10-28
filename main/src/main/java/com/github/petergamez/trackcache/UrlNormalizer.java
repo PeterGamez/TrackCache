@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 @Component
 public class UrlNormalizer {
 
-    // Search prefixes mapping from Lavalink & PulseLink to platform names
+    // Search prefixes mapping from Lavalink platform names
     private static final Map<String, String> SEARCH_PREFIX_MAP = new HashMap<>();
 
     // Allowed canonical subkeys per platform

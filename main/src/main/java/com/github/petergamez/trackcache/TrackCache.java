@@ -5,17 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import com.github.petergamez.trackcache.redis.RedisConnectionManager;
+import com.github.petergamez.trackcache.redis.TrackCacheCleaner;
 import com.github.petergamez.trackcache.util.LoadResultSanitizer;
 import com.github.petergamez.trackcache.util.TrackCacheStats;
+import com.github.petergamez.trackcache.util.TrackDecomposer;
 import com.github.petergamez.trackcache.util.UrlNormalizer;
-import io.lettuce.core.KeyScanCursor;
-import io.lettuce.core.LettuceFutures;
 import io.lettuce.core.RedisClient;
-import io.lettuce.core.RedisFuture;
-import io.lettuce.core.ScanArgs;
-import io.lettuce.core.ScanCursor;
 import io.lettuce.core.api.StatefulRedisConnection;
-import io.lettuce.core.api.async.RedisAsyncCommands;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,12 +20,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -49,7 +40,9 @@ public class TrackCache implements AutoCloseable {
     private final ObjectMapper objectMapper;
     private final LoadResultSanitizer sanitizer;
     private final RedisConnectionManager connectionManager;
-    private final TrackCacheStats stats = new TrackCacheStats();
+    private final TrackCacheStats stats;
+    private final TrackDecomposer decomposer;
+    private final TrackCacheCleaner cleaner;
 
     private final ExecutorService cacheExecutor = new ThreadPoolExecutor(
             2,
@@ -74,13 +67,45 @@ public class TrackCache implements AutoCloseable {
                       UrlNormalizer normalizer,
                       ObjectMapper objectMapper,
                       LoadResultSanitizer sanitizer,
-                      RedisConnectionManager connectionManager) {
+                      RedisConnectionManager connectionManager,
+                      TrackCacheStats stats,
+                      TrackDecomposer decomposer,
+                      TrackCacheCleaner cleaner) {
         this.config = config;
         this.normalizer = normalizer;
         this.objectMapper = objectMapper;
         this.sanitizer = sanitizer;
         this.connectionManager = connectionManager;
+        this.stats = stats;
+        this.decomposer = decomposer;
+        this.cleaner = cleaner;
         this.connectionManager.setOnConnectedCallback(this::schedulePurgeInvalidKeys);
+    }
+
+    public TrackCache(TrackCacheConfig config,
+                      UrlNormalizer normalizer,
+                      ObjectMapper objectMapper,
+                      LoadResultSanitizer sanitizer,
+                      RedisConnectionManager connectionManager,
+                      TrackCacheStats stats) {
+        this(
+                config,
+                normalizer,
+                objectMapper,
+                sanitizer,
+                connectionManager,
+                stats,
+                new TrackDecomposer(config, normalizer, objectMapper, sanitizer, connectionManager, stats),
+                new TrackCacheCleaner(config, normalizer, connectionManager, stats)
+        );
+    }
+
+    public TrackCache(TrackCacheConfig config,
+                      UrlNormalizer normalizer,
+                      ObjectMapper objectMapper,
+                      LoadResultSanitizer sanitizer,
+                      RedisConnectionManager connectionManager) {
+        this(config, normalizer, objectMapper, sanitizer, connectionManager, new TrackCacheStats());
     }
 
     public TrackCache(TrackCacheConfig config,
@@ -281,7 +306,7 @@ public class TrackCache implements AutoCloseable {
             }
 
             if (tracksToDecompose != null && !tracksToDecompose.isEmpty()) {
-                decomposeAndCacheTrackNodes(tracksToDecompose, getTtlDuration("track"), loadType);
+                decomposer.decomposeAndCacheTrackNodes(tracksToDecompose, getTtlDuration("track"), loadType, cacheExecutor);
             }
         } catch (Exception e) {
             connectionManager.recordError("Error writing to Redis for identifier: " + identifier, e, stats);
@@ -300,107 +325,8 @@ public class TrackCache implements AutoCloseable {
         sanitizer.sanitizeTrackNode(trackNode);
     }
 
-    private void decomposeAndCacheTrackNodes(Iterable<JsonNode> tracksNode, Duration ttl, String source) {
-        try {
-            RedisAsyncCommands<String, String> async = connectionManager.getAsyncCommands(cacheExecutor);
-            if (async == null) {
-                return;
-            }
-
-            List<RedisFuture<String>> futures = new ArrayList<>();
-            Set<String> seenKeys = new HashSet<>();
-            String keyPrefix = config.getRedis().getKeyPrefix();
-
-            for (JsonNode trackNode : tracksNode) {
-                if (!sanitizer.isTrackNodeCacheable(trackNode)) {
-                    continue;
-                }
-
-                JsonNode infoNode = trackNode.get("info");
-                String uri = sanitizer.getNonEmptyText(infoNode, "uri");
-                String trackId = sanitizer.getNonEmptyText(infoNode, "identifier");
-                String sourceName = sanitizer.getNonEmptyText(infoNode, "sourceName");
-
-                String trackCanonicalKey = uri != null ? normalizer.normalize(uri) : null;
-                if ((trackCanonicalKey == null || trackCanonicalKey.isEmpty())
-                        && trackId != null && !trackId.startsWith("http://") && !trackId.startsWith("https://")) {
-                    String platform = sourceName != null ? sourceName.toLowerCase(Locale.ROOT) : "track";
-                    trackCanonicalKey = platform + ":track:" + trackId;
-                }
-
-                if (trackCanonicalKey == null || !normalizer.isCacheableKey(trackCanonicalKey)) {
-                    continue;
-                }
-
-                String fullTrackKey = keyPrefix + trackCanonicalKey;
-                if (!seenKeys.add(fullTrackKey)) {
-                    continue;
-                }
-
-                ObjectNode singleTrackResult = objectMapper.createObjectNode();
-                singleTrackResult.put("loadType", "track");
-                singleTrackResult.set("data", trackNode);
-
-                String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
-
-                if (ttl != null) {
-                    futures.add(async.setex(fullTrackKey, ttl.getSeconds(), singleTrackJson));
-                } else {
-                    futures.add(async.set(fullTrackKey, singleTrackJson));
-                }
-            }
-
-            if (!futures.isEmpty()) {
-                boolean completed = LettuceFutures.awaitAll(Duration.ofSeconds(5), futures.toArray(new RedisFuture[0]));
-                if (completed) {
-                    connectionManager.markHealthy();
-                    stats.recordPuts(futures.size());
-                    stats.invalidateKeyCount();
-                    log.debug("Pipelined and cached {} individual tracks from {}.", futures.size(), source);
-                } else {
-                    log.warn("Timed out waiting for all decomposed track writes from {}.", source);
-                }
-            }
-        } catch (Exception e) {
-            connectionManager.recordError("Failed to decompose tracks from " + source, e, stats);
-        }
-    }
-
-    private long deleteKeys(RedisCommands<String, String> commands, String... keys) {
-        if (keys == null || keys.length == 0) {
-            return 0;
-        }
-        Long deleted;
-        try {
-            deleted = commands.unlink(keys);
-        } catch (Exception e) {
-            deleted = commands.del(keys);
-        }
-        stats.invalidateKeyCount();
-        return deleted != null ? deleted : 0;
-    }
-
     public boolean evict(String identifier) {
-        if (identifier == null || identifier.trim().isEmpty()) return false;
-        try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
-            if (commands == null) return false;
-            String prefix = config.getRedis().getKeyPrefix();
-            String trimmed = identifier.trim();
-            String fullKey;
-            if (trimmed.startsWith(prefix)) {
-                fullKey = trimmed;
-            } else {
-                String canonical = normalizer.normalize(trimmed);
-                fullKey = prefix + (canonical != null && !canonical.isEmpty() ? canonical : trimmed);
-            }
-            long deleted = deleteKeys(commands, fullKey);
-            connectionManager.markHealthy();
-            return deleted > 0;
-        } catch (Exception e) {
-            connectionManager.recordError("Error evicting key for: " + identifier, e, stats);
-            return false;
-        }
+        return cleaner.evict(identifier, cacheExecutor);
     }
 
     public void schedulePurgeInvalidKeys() {
@@ -413,75 +339,15 @@ public class TrackCache implements AutoCloseable {
     }
 
     public long clearKeysMatching(String pattern) {
-        try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
-            if (commands == null) return 0;
-            ScanCursor cursor = ScanCursor.INITIAL;
-            ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(500);
-            long totalDeleted = 0;
-            do {
-                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
-                List<String> keys = scanResult.getKeys();
-                if (keys != null && !keys.isEmpty()) {
-                    totalDeleted += deleteKeys(commands, keys.toArray(new String[0]));
-                }
-                cursor = scanResult;
-            } while (!cursor.isFinished());
-            connectionManager.markHealthy();
-            return totalDeleted;
-        } catch (Exception e) {
-            connectionManager.recordError("Error clearing keys matching: " + pattern, e, stats);
-            return 0;
-        }
+        return cleaner.clearKeysMatching(pattern, cacheExecutor);
     }
 
     public long purgeInvalidKeys() {
-        try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
-            if (commands == null) return 0;
-
-            String prefix = config.getRedis().getKeyPrefix();
-            ScanCursor cursor = ScanCursor.INITIAL;
-            ScanArgs scanArgs = ScanArgs.Builder.matches(prefix + "*").limit(500);
-
-            long totalDeleted = 0;
-            List<String> batchToDelete = new ArrayList<>(100);
-
-            do {
-                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
-                List<String> keys = scanResult.getKeys();
-                if (keys != null) {
-                    for (String key : keys) {
-                        String strippedKey = key.startsWith(prefix) ? key.substring(prefix.length()) : key;
-                        if (!normalizer.isCacheableKey(strippedKey)) {
-                            batchToDelete.add(key);
-                            if (batchToDelete.size() >= 100) {
-                                totalDeleted += deleteKeys(commands, batchToDelete.toArray(new String[0]));
-                                batchToDelete.clear();
-                            }
-                        }
-                    }
-                }
-                cursor = scanResult;
-            } while (!cursor.isFinished());
-
-            if (!batchToDelete.isEmpty()) {
-                totalDeleted += deleteKeys(commands, batchToDelete.toArray(new String[0]));
-            }
-
-            connectionManager.markHealthy();
-            if (totalDeleted > 0) {
-                log.info("Purged {} invalid/legacy HTTP and uncacheable keys from Redis in a single scan pass.", totalDeleted);
-            }
-            return totalDeleted;
-        } catch (Exception e) {
-            connectionManager.recordError("Error purging invalid keys from Redis", e, stats);
-            return 0;
-        }
+        return cleaner.purgeInvalidKeys(cacheExecutor);
     }
 
     public long clearAll() {
-        return clearKeysMatching(config.getRedis().getKeyPrefix() + "*");
+        return cleaner.clearAll(cacheExecutor);
     }
 
     public Map<String, Object> getStats() {
@@ -492,32 +358,22 @@ public class TrackCache implements AutoCloseable {
             if (stats.isKeyCountFresh(now)) {
                 result.put("totalCachedKeys", stats.getCachedKeyCount());
             } else {
-                RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
-                if (commands != null) {
-                    if (stats.tryAcquireScanLock()) {
-                        try {
-                            String pattern = config.getRedis().getKeyPrefix() + "*";
-                            ScanCursor cursor = ScanCursor.INITIAL;
-                            ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(1000);
-                            long totalKeys = 0;
-                            do {
-                                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
-                                totalKeys += scanResult.getKeys().size();
-                                cursor = scanResult;
-                            } while (!cursor.isFinished());
-                            connectionManager.markHealthy();
+                if (stats.tryAcquireScanLock()) {
+                    try {
+                        long totalKeys = cleaner.scanKeyCount(config.getRedis().getKeyPrefix() + "*", cacheExecutor);
+                        if (totalKeys >= 0) {
                             stats.updateCachedKeyCount(totalKeys);
                             result.put("totalCachedKeys", totalKeys);
                             result.put("redisHealthy", true);
-                        } finally {
-                            stats.releaseScanLock();
+                        } else {
+                            result.put("totalCachedKeys", "unavailable");
                         }
-                    } else {
-                        long cachedCount = stats.getCachedKeyCount();
-                        result.put("totalCachedKeys", cachedCount >= 0 ? cachedCount : "scanning");
+                    } finally {
+                        stats.releaseScanLock();
                     }
                 } else {
-                    result.put("totalCachedKeys", "unavailable");
+                    long cachedCount = stats.getCachedKeyCount();
+                    result.put("totalCachedKeys", cachedCount >= 0 ? cachedCount : "scanning");
                 }
             }
         } catch (Exception e) {
@@ -564,4 +420,3 @@ public class TrackCache implements AutoCloseable {
         connectionManager.close();
     }
 }
-

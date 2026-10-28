@@ -1,5 +1,7 @@
 package com.github.petergamez.trackcache.util;
 
+import org.springframework.stereotype.Component;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -8,6 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Thread-safe metrics and key-count cache holder for TrackCache.
  */
+@Component
 public class TrackCacheStats {
 
     private static final long KEY_COUNT_CACHE_TTL_MS = 15_000;

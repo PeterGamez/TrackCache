@@ -78,4 +78,23 @@ class TrackCacheServiceTest {
         assertTrue(trackCacheService.isCacheable("ytsearch:rick astley"));
         assertTrue(trackCacheService.isCacheable("youtube:track:dQw4w9WgXcQ"));
     }
+
+    @Test
+    void testGetCachedResultUncacheable() {
+        assertNull(trackCacheService.getCachedResult("http://example.com/stream.mp3"));
+        assertNull(trackCacheService.getCachedResult("youtube:http://example.com"));
+        assertNull(trackCacheService.getCachedResult("https://www.youtube.com/@channel"));
+        assertNull(trackCacheService.getCachedResult(null));
+        assertNull(trackCacheService.getCachedResult("   "));
+    }
+
+    @Test
+    void testGetStatsWithoutRedis() {
+        var stats = trackCacheService.getStats();
+        assertNotNull(stats);
+        assertEquals(true, stats.get("enabled"));
+        assertEquals(0L, stats.get("hits"));
+        assertEquals(0L, stats.get("misses"));
+        assertEquals("unavailable", stats.get("totalCachedKeys"));
+    }
 }

@@ -157,7 +157,7 @@ public class UrlNormalizer {
         String query = identifier.trim();
 
         // 0. Handle direct "youtube:" prefix (e.g. youtube:http://..., youtube:dQw4w9WgXcQ, youtube:track:...)
-        if (query.toLowerCase().startsWith("youtube:")) {
+        if (query.regionMatches(true, 0, "youtube:", 0, 8)) {
             return normalizeYouTubePrefix(query);
         }
 
@@ -341,23 +341,11 @@ public class UrlNormalizer {
             return false;
         }
         String u = url.trim();
-        return YT_DOMAIN_PATTERN.matcher(u).find() || YOUTU_BE_PATTERN.matcher(u).find();
-    }
-
-    public boolean isRecognizedPlatformUrl(String url) {
-        if (url == null || url.trim().isEmpty()) {
+        String lower = u.toLowerCase();
+        if (!lower.contains("youtube") && !lower.contains("youtu.be")) {
             return false;
         }
-        String u = url.trim();
-        return isYouTubeUrl(u)
-                || SPOTIFY_URL_PATTERN.matcher(u).find()
-                || SOUNDCLOUD_URL_PATTERN.matcher(u).find()
-                || APPLE_MUSIC_URL_PATTERN.matcher(u).find()
-                || DEEZER_URL_PATTERN.matcher(u).find()
-                || AMAZON_MUSIC_URL_PATTERN.matcher(u).find()
-                || TIDAL_URL_PATTERN.matcher(u).find()
-                || YANDEX_TRACK_URL_PATTERN.matcher(u).find()
-                || YANDEX_ALBUM_URL_PATTERN.matcher(u).find();
+        return YT_DOMAIN_PATTERN.matcher(u).find() || YOUTU_BE_PATTERN.matcher(u).find();
     }
 
     /**
@@ -368,20 +356,7 @@ public class UrlNormalizer {
      * @return true if cacheable, false otherwise
      */
     public boolean isCacheable(String identifier) {
-        if (identifier == null || identifier.trim().isEmpty()) {
-            return false;
-        }
-        String query = identifier.trim();
-
-        // Reject direct generic HTTP/HTTPS URLs (must not be cached)
-        if (query.startsWith("http://") || query.startsWith("https://")) {
-            if (!isRecognizedPlatformUrl(query)) {
-                return false;
-            }
-        }
-
-        String canonical = normalize(query);
-        return canonical != null && !canonical.isEmpty() && isCacheableKey(canonical);
+        return toFullCacheKey(identifier, "") != null;
     }
 
     /**

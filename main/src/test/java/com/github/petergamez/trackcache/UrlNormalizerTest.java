@@ -72,6 +72,12 @@ class UrlNormalizerTest {
                 normalizer.normalize("https://open.spotify.com/artist/0OdUWJ0sBjDrqHygGUWzfr"));
         assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
                 normalizer.normalize("https://open.spotify.com/intl-th/track/4cOdK2wGLETKBW3PvgPWqT"));
+        assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+                normalizer.normalize("https://open.spotify.com/intl-pt-br/track/4cOdK2wGLETKBW3PvgPWqT"));
+        assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",
+                normalizer.normalize("https://open.spotify.com/intl-es-419/track/4cOdK2wGLETKBW3PvgPWqT"));
+        assertEquals("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+                normalizer.normalize("https://open.spotify.com/intl-zh-Hant/playlist/37i9dQZF1DXcBWIGoYBM5M"));
 
         // URI
         assertEquals("spotify:track:4cOdK2wGLETKBW3PvgPWqT",

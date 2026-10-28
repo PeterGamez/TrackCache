@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 public class SpotifyNormalizer implements PlatformNormalizer {
 
     private static final Pattern SPOTIFY_URL_PATTERN = Pattern.compile(
-            "^(?:https?://)?(?:open|play)\\.spotify\\.com/(?:intl-[a-z]{2}/)?(track|playlist|album|artist)/([a-zA-Z0-9]+)",
+            "^(?:https?://)?(?:open|play)\\.spotify\\.com/(?:intl-[^/]+/)?(track|playlist|album|artist)/([a-zA-Z0-9]+)",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern SPOTIFY_URI_PATTERN = Pattern.compile(

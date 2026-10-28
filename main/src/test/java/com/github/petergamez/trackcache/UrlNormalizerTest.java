@@ -29,8 +29,10 @@ class UrlNormalizerTest {
         // Bare 11-char ID
         assertEquals("youtube:track:dQw4w9WgXcQ", normalizer.normalize("dQw4w9WgXcQ"));
 
-        // Search prefixes
+        // Search prefixes (including whitespace collapsing and case normalization)
         assertEquals("youtube:search:rick astley", normalizer.normalize("ytsearch:rick astley"));
+        assertEquals("youtube:search:rick astley never gonna give you up",
+                normalizer.normalize("ytsearch:   Rick   Astley   Never   Gonna  Give You Up  "));
         assertEquals("youtubemusic:search:rick astley", normalizer.normalize("ytmsearch:rick astley"));
         assertEquals("youtube:search:rick astley", normalizer.normalize("youtube:search:rick astley"));
 
@@ -42,6 +44,8 @@ class UrlNormalizerTest {
         assertNull(normalizer.normalize("https://www.youtube.com/@somechannel"));
         assertNull(normalizer.normalize("https://www.youtube.com/feed/trending"));
         assertNull(normalizer.normalize("youtube:http://example.com/something"));
+        assertNull(normalizer.normalize("https://evil.com/watch?v=dQw4w9WgXcQ&ref=youtube"));
+        assertNull(normalizer.normalize("ytsearch:   "));
     }
 
     @Test
@@ -80,10 +84,12 @@ class UrlNormalizerTest {
         assertEquals("bilibili:video:av170001", normalizer.normalize("https://www.bilibili.com/video/av170001"));
         assertEquals("bilibili:audio:au123456", normalizer.normalize("https://www.bilibili.com/audio/au123456"));
 
-        // Bare IDs
+        // Bare IDs (including 11-char av/au IDs that must not collide with YouTube 11-char IDs)
         assertEquals("bilibili:video:BV1xx411c7mD", normalizer.normalize("BV1xx411c7mD"));
         assertEquals("bilibili:video:av170001", normalizer.normalize("av170001"));
+        assertEquals("bilibili:video:av123456789", normalizer.normalize("av123456789"));
         assertEquals("bilibili:audio:au123456", normalizer.normalize("au123456"));
+        assertEquals("bilibili:audio:au123456789", normalizer.normalize("au123456789"));
 
         // Search prefixes
         assertEquals("bilibili:search:yoasobi", normalizer.normalize("bilibilisearch:yoasobi"));
@@ -93,6 +99,7 @@ class UrlNormalizerTest {
 
         // Prefix wrapping
         assertEquals("bilibili:video:BV1xx411c7mD", normalizer.normalize("bilibili:BV1xx411c7mD"));
+        assertEquals("bilibili:video:av123456789", normalizer.normalize("bilibili:av123456789"));
         assertEquals("bilibili:video:BV1xx411c7mD", normalizer.normalize("bilibili:https://www.bilibili.com/video/BV1xx411c7mD"));
         assertEquals("bilibili:video:BV1xx411c7mD", normalizer.normalize("bilibili:video:BV1xx411c7mD"));
 
@@ -105,12 +112,19 @@ class UrlNormalizerTest {
     void testSoundCloud() {
         assertEquals("soundcloud:track:user/song-title",
                 normalizer.normalize("https://soundcloud.com/user/song-title"));
+        assertEquals("soundcloud:track:user/song-title",
+                normalizer.normalize("https://soundcloud.com/user/song-title/#t=0:15"));
         assertEquals("soundcloud:playlist:user/sets/playlist-name",
                 normalizer.normalize("https://soundcloud.com/user/sets/playlist-name"));
         assertEquals("soundcloud:search:faded",
                 normalizer.normalize("scsearch:faded"));
         assertEquals("soundcloud:track:user/song-title",
                 normalizer.normalize("scsearch:https://soundcloud.com/user/song-title"));
+
+        // Invalid or reserved SoundCloud paths -> null
+        assertNull(normalizer.normalize("https://soundcloud.com/artist///"));
+        assertNull(normalizer.normalize("https://soundcloud.com/user/sets/"));
+        assertNull(normalizer.normalize("https://soundcloud.com/you/likes"));
     }
 
     @Test
@@ -211,10 +225,13 @@ class UrlNormalizerTest {
         assertFalse(normalizer.isCacheableKey(null));
         assertFalse(normalizer.isCacheableKey(""));
 
-        // Rejects empty subkeys
+        // Rejects empty subkeys across all platforms
         assertFalse(normalizer.isCacheableKey("youtube:track:"));
         assertFalse(normalizer.isCacheableKey("bilibili:video:"));
         assertFalse(normalizer.isCacheableKey("spotify:track:"));
+        assertFalse(normalizer.isCacheableKey("jiosaavn:"));
+        assertFalse(normalizer.isCacheableKey("jiosaavn:track:"));
+        assertFalse(normalizer.isCacheableKey("gaana:search:"));
 
         // Valid canonical keys across all platforms
         assertTrue(normalizer.isCacheableKey("youtube:track:dQw4w9WgXcQ"));
@@ -231,6 +248,8 @@ class UrlNormalizerTest {
         assertTrue(normalizer.isCacheableKey("amazonmusic:track:B001387G7G"));
         assertTrue(normalizer.isCacheableKey("tidal:track:123456"));
         assertTrue(normalizer.isCacheableKey("yandexmusic:track:456"));
+        assertTrue(normalizer.isCacheableKey("jiosaavn:track:abc123"));
+        assertTrue(normalizer.isCacheableKey("jiosaavn:search:arijit singh"));
     }
 
     @Test

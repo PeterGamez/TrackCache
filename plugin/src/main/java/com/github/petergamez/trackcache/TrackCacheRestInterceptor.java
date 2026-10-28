@@ -41,8 +41,13 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
         }
 
         String uri = request.getRequestURI();
+        if (uri == null || (!uri.endsWith(LOADTRACKS_PATH) && !uri.endsWith(LOADTRACKS_PATH + "/"))) {
+            return true;
+        }
 
-        if (!uri.endsWith(LOADTRACKS_PATH) && !uri.endsWith(LOADTRACKS_PATH + "/")) {
+        // Never short-circuit unauthenticated requests before Lavalink's authorization filter
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || authHeader.isEmpty()) {
             return true;
         }
 
@@ -82,13 +87,25 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
             String errorMessage = null;
 
             while (parser.nextToken() != null) {
+                if (parser.currentToken() != JsonToken.FIELD_NAME) {
+                    continue;
+                }
                 String fieldName = parser.currentName();
                 if ("loadType".equals(fieldName)) {
-                    loadType = parser.nextTextValue();
+                    String val = parser.nextTextValue();
+                    if (val != null) {
+                        loadType = val;
+                    }
                 } else if ("title".equals(fieldName) && trackTitle == null) {
                     trackTitle = parser.nextTextValue();
+                    if ("track".equalsIgnoreCase(loadType) && trackTitle != null) {
+                        break;
+                    }
                 } else if ("name".equals(fieldName) && "unknown".equals(playlistName)) {
-                    playlistName = parser.nextTextValue();
+                    String val = parser.nextTextValue();
+                    if (val != null) {
+                        playlistName = val;
+                    }
                 } else if ("message".equals(fieldName) && errorMessage == null) {
                     errorMessage = parser.nextTextValue();
                 } else if ("tracks".equals(fieldName) || "data".equals(fieldName)) {

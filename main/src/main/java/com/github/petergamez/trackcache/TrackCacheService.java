@@ -21,19 +21,23 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 @Service
 public class TrackCacheService implements AutoCloseable {
@@ -53,12 +57,14 @@ public class TrackCacheService implements AutoCloseable {
     private final AtomicLong errors = new AtomicLong(0);
     private final AtomicLong puts = new AtomicLong(0);
 
-    private volatile boolean redisHealthy = true;
-    private volatile long lastErrorTime = 0;
+    private volatile boolean redisHealthy;
+    private final AtomicLong lastErrorTime = new AtomicLong(0);
+    private final AtomicBoolean reconnectInProgress = new AtomicBoolean(false);
     private static final long HEALTH_CHECK_COOLDOWN_MS = 10_000;
 
     private volatile long cachedKeyCount = -1;
     private volatile long lastKeyCountScanTime = 0;
+    private final AtomicBoolean keyCountScanInProgress = new AtomicBoolean(false);
     private static final long KEY_COUNT_CACHE_TTL_MS = 15_000;
 
     private final ExecutorService cacheExecutor = new ThreadPoolExecutor(
@@ -93,7 +99,11 @@ public class TrackCacheService implements AutoCloseable {
         if (connection != null && connection.isOpen()) {
             this.syncCommands = connection.sync();
             this.asyncCommands = connection.async();
+            this.redisHealthy = true;
             schedulePurgeInvalidKeys();
+        } else {
+            this.redisHealthy = false;
+            this.lastErrorTime.set(System.currentTimeMillis());
         }
     }
 
@@ -104,42 +114,81 @@ public class TrackCacheService implements AutoCloseable {
         this(config, normalizer, objectMapper, redisClient, null);
     }
 
+    private boolean isConnectionReady() {
+        if (!config.isEnabled()) {
+            return false;
+        }
+        StatefulRedisConnection<String, String> conn = this.connection;
+        if (conn != null && conn.isOpen() && this.syncCommands != null && this.asyncCommands != null) {
+            return redisHealthy || allowHealthProbe();
+        }
+        if (redisClient != null) {
+            triggerAsyncReconnectIfReady();
+        }
+        return false;
+    }
+
     private RedisCommands<String, String> getCommands() {
-        if (!config.isEnabled() || !isRedisAvailable()) {
-            return null;
-        }
-        if (syncCommands != null && connection != null && connection.isOpen()) {
-            return syncCommands;
-        }
-        synchronized (this) {
-            if (syncCommands != null && connection != null && connection.isOpen()) {
-                return syncCommands;
-            }
-            if (redisClient == null) {
-                return null;
-            }
+        return isConnectionReady() ? this.syncCommands : null;
+    }
+
+    private RedisAsyncCommands<String, String> getAsyncCommands() {
+        return isConnectionReady() ? this.asyncCommands : null;
+    }
+
+    private boolean allowHealthProbe() {
+        long now = System.currentTimeMillis();
+        long lastErr = lastErrorTime.get();
+        return (now - lastErr > HEALTH_CHECK_COOLDOWN_MS) && lastErrorTime.compareAndSet(lastErr, now);
+    }
+
+    private void triggerAsyncReconnectIfReady() {
+        long now = System.currentTimeMillis();
+        long lastErr = lastErrorTime.get();
+        if (now - lastErr > HEALTH_CHECK_COOLDOWN_MS && reconnectInProgress.compareAndSet(false, true)) {
+            lastErrorTime.set(now);
             try {
-                this.connection = redisClient.connect();
-                this.syncCommands = this.connection.sync();
-                this.asyncCommands = this.connection.async();
-                schedulePurgeInvalidKeys();
-                return this.syncCommands;
+                cacheExecutor.submit(this::reconnectInBackground);
             } catch (Exception e) {
-                handleRedisError("Failed to connect to Redis", e);
-                return null;
+                reconnectInProgress.set(false);
             }
         }
     }
 
-    private RedisAsyncCommands<String, String> getAsyncCommands() {
-        if (!config.isEnabled() || !isRedisAvailable()) {
-            return null;
+    private void reconnectInBackground() {
+        try {
+            synchronized (this) {
+                if (this.connection != null && this.connection.isOpen() && this.syncCommands != null) {
+                    markRedisHealthy();
+                    return;
+                }
+                if (this.redisClient == null || !config.isEnabled()) {
+                    return;
+                }
+                StatefulRedisConnection<String, String> newConn = this.redisClient.connect();
+                this.connection = newConn;
+                this.syncCommands = newConn.sync();
+                this.asyncCommands = newConn.async();
+                markRedisHealthy();
+                schedulePurgeInvalidKeys();
+            }
+        } catch (Exception e) {
+            handleRedisError("Failed to reconnect to Redis in background", e);
+        } finally {
+            reconnectInProgress.set(false);
         }
-        if (asyncCommands != null && connection != null && connection.isOpen()) {
-            return asyncCommands;
+    }
+
+    private void markRedisHealthy() {
+        if (!redisHealthy) {
+            redisHealthy = true;
+            log.info("Redis connection is healthy and active.");
         }
-        getCommands();
-        return asyncCommands;
+    }
+
+    private void invalidateKeyCountCache() {
+        this.cachedKeyCount = -1;
+        this.lastKeyCountScanTime = 0;
     }
 
     public boolean isEnabled() {
@@ -151,48 +200,64 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public String getCachedResult(String identifier) {
-        if (!config.isEnabled() || !isRedisAvailable() || identifier == null || identifier.trim().isEmpty()) {
+        return getCachedResultInternal(identifier, true);
+    }
+
+    public String peekCachedResult(String identifier) {
+        return getCachedResultInternal(identifier, false);
+    }
+
+    private String getCachedResultInternal(String identifier, boolean recordStats) {
+        if (!config.isEnabled() || identifier == null || identifier.trim().isEmpty()) {
             return null;
         }
 
         String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
         if (fullKey == null) {
-            misses.incrementAndGet();
             return null;
         }
 
         try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) {
-                misses.incrementAndGet();
+                if (recordStats) {
+                    misses.incrementAndGet();
+                }
                 return null;
             }
 
             String cached = commands.get(fullKey);
+            markRedisHealthy();
 
             if (cached != null && !cached.isEmpty()) {
-                hits.incrementAndGet();
+                if (recordStats) {
+                    hits.incrementAndGet();
+                }
                 log.debug("Cache HIT for identifier: '{}' [key: {}]", identifier, fullKey);
                 return cached;
             } else {
-                misses.incrementAndGet();
+                if (recordStats) {
+                    misses.incrementAndGet();
+                }
                 log.debug("Cache MISS for identifier: '{}' [key: {}]", identifier, fullKey);
                 return null;
             }
         } catch (Exception e) {
             handleRedisError("Error reading from Redis for identifier: " + identifier, e);
-            misses.incrementAndGet();
+            if (recordStats) {
+                misses.incrementAndGet();
+            }
             return null;
         }
     }
 
     public void cacheResult(String identifier, Object responseBody) {
-        if (!config.isEnabled() || !isRedisAvailable() || identifier == null || responseBody == null) {
+        if (!config.isEnabled() || identifier == null || responseBody == null) {
             return;
         }
 
         String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
-        if (fullKey == null) {
+        if (fullKey == null || (getAsyncCommands() == null && !redisHealthy)) {
             return;
         }
 
@@ -205,11 +270,18 @@ public class TrackCacheService implements AutoCloseable {
 
     private void doCacheResult(String fullKey, String identifier, Object responseBody) {
         try {
+            Object resolvedBody = responseBody instanceof Supplier<?> supplier ? supplier.get() : responseBody;
+            if (resolvedBody == null) {
+                return;
+            }
+
             JsonNode rootNode;
-            if (responseBody instanceof String) {
-                rootNode = objectMapper.readTree((String) responseBody);
+            if (resolvedBody instanceof String jsonStr) {
+                rootNode = objectMapper.readTree(jsonStr);
+            } else if (resolvedBody instanceof JsonNode jsonNode) {
+                rootNode = jsonNode.deepCopy();
             } else {
-                rootNode = objectMapper.valueToTree(responseBody);
+                rootNode = objectMapper.valueToTree(resolvedBody);
             }
 
             if (!(rootNode instanceof ObjectNode objectNode)) {
@@ -218,65 +290,86 @@ public class TrackCacheService implements AutoCloseable {
 
             sanitizeLoadResultNode(objectNode);
 
-            String loadType = objectNode.has("loadType") ? objectNode.get("loadType").asText() : "";
+            String loadType = objectNode.hasNonNull("loadType") ? objectNode.get("loadType").asText().trim() : "";
 
-            if ("error".equalsIgnoreCase(loadType)) {
-                log.debug("Skipping caching error response for: '{}'", identifier);
+            // Strict whitelist of Lavalink v4 loadType values
+            if (!"track".equals(loadType)
+                    && !"playlist".equals(loadType)
+                    && !"search".equals(loadType)
+                    && !"empty".equals(loadType)) {
+                log.debug("Skipping caching response with non-cacheable loadType '{}' for: '{}'", loadType, identifier);
                 return;
             }
-            if ("empty".equalsIgnoreCase(loadType) && !config.getCache().isEmpty()) {
+
+            if ("empty".equals(loadType) && !config.getCache().isEmpty()) {
                 log.debug("Skipping caching empty response for: '{}'", identifier);
                 return;
             }
 
-            // Do not cache track if it is a live stream or HTTP/local source track
-            if ("track".equalsIgnoreCase(loadType)) {
-                JsonNode dataNode = objectNode.get("data");
+            JsonNode dataNode = objectNode.get("data");
+            JsonNode tracksToDecompose = null;
+            boolean shouldCacheFull = true;
+
+            if ("track".equals(loadType)) {
                 if (!isTrackNodeCacheable(dataNode)) {
                     log.debug("Skipping caching track with uncacheable attributes (HTTP source or isStream) for: '{}'", identifier);
                     return;
                 }
-            }
-
-            if ("search".equalsIgnoreCase(loadType) && !config.getCache().isSearches()) {
-                log.debug("Skipping caching search response for: '{}'", identifier);
-                if (config.getCache().isIndividualSearchTracks()) {
-                    decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
+            } else if ("playlist".equals(loadType)) {
+                if (dataNode == null || !dataNode.isObject()
+                        || !dataNode.has("tracks") || !dataNode.get("tracks").isArray()
+                        || dataNode.get("tracks").isEmpty()) {
+                    log.debug("Skipping caching empty or malformed playlist response for: '{}'", identifier);
+                    return;
                 }
-                return;
-            }
-            if ("playlist".equalsIgnoreCase(loadType) && !config.getCache().isPlaylists()) {
-                log.debug("Skipping caching full playlist response for: '{}'", identifier);
+                shouldCacheFull = config.getCache().isPlaylists();
                 if (config.getCache().isIndividualPlaylistTracks()) {
-                    decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
+                    tracksToDecompose = dataNode.get("tracks");
                 }
-                return;
+            } else if ("search".equals(loadType)) {
+                if (dataNode == null || !dataNode.isArray()) {
+                    log.debug("Skipping caching malformed search response for: '{}'", identifier);
+                    return;
+                }
+                if (dataNode.isEmpty() && !config.getCache().isEmpty()) {
+                    log.debug("Skipping caching empty search array response for: '{}'", identifier);
+                    return;
+                }
+                shouldCacheFull = config.getCache().isSearches();
+                if (config.getCache().isIndividualSearchTracks()) {
+                    tracksToDecompose = dataNode;
+                }
             }
 
-            RedisCommands<String, String> commands = getCommands();
-            if (commands == null) {
-                return;
-            }
+            if (shouldCacheFull) {
+                RedisCommands<String, String> commands = getCommands();
+                if (commands == null) {
+                    return;
+                }
 
-            Duration ttl = getTtlDuration(loadType);
-            String json = objectMapper.writeValueAsString(objectNode);
+                Duration ttl = getTtlDuration(loadType);
+                String json = objectMapper.writeValueAsString(objectNode);
 
-            if (ttl != null) {
-                commands.setex(fullKey, ttl.getSeconds(), json);
+                if (ttl != null) {
+                    commands.setex(fullKey, ttl.getSeconds(), json);
+                } else {
+                    commands.set(fullKey, json);
+                }
+                markRedisHealthy();
+                puts.incrementAndGet();
+                invalidateKeyCountCache();
+
+                String ttlDisplay = ttl != null
+                        ? (ttl.toHours() > 0 ? ttl.toHours() + "h" : ttl.toMinutes() + "m")
+                        : "persistent";
+                log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
+                        identifier, loadType, fullKey, ttlDisplay);
             } else {
-                commands.set(fullKey, json);
+                log.debug("Skipping caching full {} response for: '{}'", loadType, identifier);
             }
-            puts.incrementAndGet();
-            String ttlDisplay = ttl != null
-                    ? (ttl.toHours() > 0 ? ttl.toHours() + "h" : ttl.toMinutes() + "m")
-                    : "persistent";
-            log.info("Cached result for: '{}' [loadType: {}, key: {}, ttl: {}]",
-                    identifier, loadType, fullKey, ttlDisplay);
 
-            if ("playlist".equalsIgnoreCase(loadType) && config.getCache().isIndividualPlaylistTracks()) {
-                decomposeAndCachePlaylistTracks(objectNode, getTtlDuration("track"));
-            } else if ("search".equalsIgnoreCase(loadType) && config.getCache().isIndividualSearchTracks()) {
-                decomposeAndCacheSearchTracks(objectNode, getTtlDuration("track"));
+            if (tracksToDecompose != null && !tracksToDecompose.isEmpty()) {
+                decomposeAndCacheTrackNodes(tracksToDecompose, getTtlDuration("track"), loadType);
             }
         } catch (Exception e) {
             handleRedisError("Error writing to Redis for identifier: " + identifier, e);
@@ -314,36 +407,6 @@ public class TrackCacheService implements AutoCloseable {
         return true;
     }
 
-    private void decomposeAndCacheSearchTracks(JsonNode searchRoot, Duration ttl) {
-        try {
-            JsonNode dataNode = searchRoot.get("data");
-            if (dataNode == null || !dataNode.isArray() || dataNode.isEmpty()) {
-                return;
-            }
-            decomposeAndCacheTrackNodes(dataNode, ttl, "search");
-        } catch (Exception e) {
-            log.warn("Failed to decompose search tracks: {}", e.getMessage());
-        }
-    }
-
-    private void decomposeAndCachePlaylistTracks(JsonNode playlistRoot, Duration ttl) {
-        try {
-            JsonNode dataNode = playlistRoot.get("data");
-            if (dataNode == null || !dataNode.has("tracks")) {
-                return;
-            }
-
-            JsonNode tracksNode = dataNode.get("tracks");
-            if (!tracksNode.isArray() || tracksNode.isEmpty()) {
-                return;
-            }
-
-            decomposeAndCacheTrackNodes(tracksNode, ttl, "playlist");
-        } catch (Exception e) {
-            log.warn("Failed to decompose playlist tracks: {}", e.getMessage());
-        }
-    }
-
     private void decomposeAndCacheTrackNodes(Iterable<JsonNode> tracksNode, Duration ttl, String source) {
         try {
             RedisAsyncCommands<String, String> async = getAsyncCommands();
@@ -352,6 +415,7 @@ public class TrackCacheService implements AutoCloseable {
             }
 
             List<RedisFuture<String>> futures = new ArrayList<>();
+            Set<String> seenKeys = new HashSet<>();
             String keyPrefix = config.getRedis().getKeyPrefix();
 
             for (JsonNode trackNode : tracksNode) {
@@ -360,25 +424,23 @@ public class TrackCacheService implements AutoCloseable {
                 }
 
                 JsonNode infoNode = trackNode.get("info");
-                String uri = infoNode.hasNonNull("uri") ? infoNode.get("uri").asText().trim() : null;
-                if (uri != null && (uri.isEmpty() || "null".equalsIgnoreCase(uri))) {
-                    uri = null;
-                }
-                String trackId = infoNode.hasNonNull("identifier") ? infoNode.get("identifier").asText().trim() : null;
-                if (trackId != null && (trackId.isEmpty() || "null".equalsIgnoreCase(trackId))) {
-                    trackId = null;
-                }
-                String sourceName = infoNode.hasNonNull("sourceName") ? infoNode.get("sourceName").asText().trim() : "";
+                String uri = getNonEmptyText(infoNode, "uri");
+                String trackId = getNonEmptyText(infoNode, "identifier");
+                String sourceName = getNonEmptyText(infoNode, "sourceName");
 
-                String trackCanonicalKey = null;
-                if (uri != null) {
-                    trackCanonicalKey = normalizer.normalize(uri);
-                } else if (trackId != null && !trackId.startsWith("http://") && !trackId.startsWith("https://")) {
-                    String platform = !sourceName.isEmpty() ? sourceName.toLowerCase() : "track";
+                String trackCanonicalKey = uri != null ? normalizer.normalize(uri) : null;
+                if ((trackCanonicalKey == null || trackCanonicalKey.isEmpty())
+                        && trackId != null && !trackId.startsWith("http://") && !trackId.startsWith("https://")) {
+                    String platform = sourceName != null ? sourceName.toLowerCase(Locale.ROOT) : "track";
                     trackCanonicalKey = platform + ":track:" + trackId;
                 }
 
-                if (trackCanonicalKey == null || trackCanonicalKey.isEmpty() || !normalizer.isCacheableKey(trackCanonicalKey)) {
+                if (trackCanonicalKey == null || !normalizer.isCacheableKey(trackCanonicalKey)) {
+                    continue;
+                }
+
+                String fullTrackKey = keyPrefix + trackCanonicalKey;
+                if (!seenKeys.add(fullTrackKey)) {
                     continue;
                 }
 
@@ -387,44 +449,69 @@ public class TrackCacheService implements AutoCloseable {
                 singleTrackResult.set("data", trackNode);
 
                 String singleTrackJson = objectMapper.writeValueAsString(singleTrackResult);
-                String fullTrackKey = keyPrefix + trackCanonicalKey;
 
                 if (ttl != null) {
                     futures.add(async.setex(fullTrackKey, ttl.getSeconds(), singleTrackJson));
                 } else {
                     futures.add(async.set(fullTrackKey, singleTrackJson));
                 }
-                puts.incrementAndGet();
             }
 
             if (!futures.isEmpty()) {
-                LettuceFutures.awaitAll(Duration.ofSeconds(5), futures.toArray(new RedisFuture[0]));
-                log.debug("Pipelined and cached {} individual tracks from {}.", futures.size(), source);
+                boolean completed = LettuceFutures.awaitAll(Duration.ofSeconds(5), futures.toArray(new RedisFuture[0]));
+                if (completed) {
+                    markRedisHealthy();
+                    puts.addAndGet(futures.size());
+                    invalidateKeyCountCache();
+                    log.debug("Pipelined and cached {} individual tracks from {}.", futures.size(), source);
+                } else {
+                    log.warn("Timed out waiting for all decomposed track writes from {}.", source);
+                }
             }
         } catch (Exception e) {
-            log.warn("Failed to decompose tracks from {}: {}", source, e.getMessage());
+            handleRedisError("Failed to decompose tracks from " + source, e);
         }
     }
 
+    private String getNonEmptyText(JsonNode node, String field) {
+        if (node == null || !node.hasNonNull(field)) {
+            return null;
+        }
+        String text = node.get(field).asText().trim();
+        return (text.isEmpty() || "null".equalsIgnoreCase(text)) ? null : text;
+    }
+
+    private long deleteKeys(RedisCommands<String, String> commands, String... keys) {
+        if (keys == null || keys.length == 0) {
+            return 0;
+        }
+        Long deleted;
+        try {
+            deleted = commands.unlink(keys);
+        } catch (Exception e) {
+            deleted = commands.del(keys);
+        }
+        invalidateKeyCountCache();
+        return deleted != null ? deleted : 0;
+    }
+
     public boolean evict(String identifier) {
-        if (!isRedisAvailable() || identifier == null || identifier.trim().isEmpty()) return false;
+        if (identifier == null || identifier.trim().isEmpty()) return false;
         try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) return false;
             String prefix = config.getRedis().getKeyPrefix();
+            String trimmed = identifier.trim();
             String fullKey;
-            if (identifier.startsWith(prefix)) {
-                fullKey = identifier;
+            if (trimmed.startsWith(prefix)) {
+                fullKey = trimmed;
             } else {
-                String canonical = normalizer.normalize(identifier);
-                if (canonical != null && !canonical.isEmpty()) {
-                    fullKey = prefix + canonical;
-                } else {
-                    fullKey = prefix + identifier.trim();
-                }
+                String canonical = normalizer.normalize(trimmed);
+                fullKey = prefix + (canonical != null && !canonical.isEmpty() ? canonical : trimmed);
             }
-            Long deleted = commands.del(fullKey);
-            return deleted != null && deleted > 0;
+            long deleted = deleteKeys(commands, fullKey);
+            markRedisHealthy();
+            return deleted > 0;
         } catch (Exception e) {
             handleRedisError("Error evicting key for: " + identifier, e);
             return false;
@@ -432,7 +519,7 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public void schedulePurgeInvalidKeys() {
-        if (!config.isEnabled() || !isRedisAvailable()) return;
+        if (!config.isEnabled()) return;
         try {
             cacheExecutor.submit(this::purgeInvalidKeys);
         } catch (Exception e) {
@@ -441,7 +528,6 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public long clearKeysMatching(String pattern) {
-        if (!isRedisAvailable()) return 0;
         try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) return 0;
@@ -452,13 +538,11 @@ public class TrackCacheService implements AutoCloseable {
                 KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
                 List<String> keys = scanResult.getKeys();
                 if (keys != null && !keys.isEmpty()) {
-                    Long deleted = commands.del(keys.toArray(new String[0]));
-                    if (deleted != null) {
-                        totalDeleted += deleted;
-                    }
+                    totalDeleted += deleteKeys(commands, keys.toArray(new String[0]));
                 }
                 cursor = scanResult;
             } while (!cursor.isFinished());
+            markRedisHealthy();
             return totalDeleted;
         } catch (Exception e) {
             handleRedisError("Error clearing keys matching: " + pattern, e);
@@ -467,7 +551,6 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public long purgeInvalidKeys() {
-        if (!isRedisAvailable()) return 0;
         try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) return 0;
@@ -488,10 +571,7 @@ public class TrackCacheService implements AutoCloseable {
                         if (!normalizer.isCacheableKey(strippedKey)) {
                             batchToDelete.add(key);
                             if (batchToDelete.size() >= 100) {
-                                Long deleted = commands.del(batchToDelete.toArray(new String[0]));
-                                if (deleted != null) {
-                                    totalDeleted += deleted;
-                                }
+                                totalDeleted += deleteKeys(commands, batchToDelete.toArray(new String[0]));
                                 batchToDelete.clear();
                             }
                         }
@@ -501,12 +581,10 @@ public class TrackCacheService implements AutoCloseable {
             } while (!cursor.isFinished());
 
             if (!batchToDelete.isEmpty()) {
-                Long deleted = commands.del(batchToDelete.toArray(new String[0]));
-                if (deleted != null) {
-                    totalDeleted += deleted;
-                }
+                totalDeleted += deleteKeys(commands, batchToDelete.toArray(new String[0]));
             }
 
+            markRedisHealthy();
             if (totalDeleted > 0) {
                 log.info("Purged {} invalid/legacy HTTP and uncacheable keys from Redis in a single scan pass.", totalDeleted);
             }
@@ -528,8 +606,9 @@ public class TrackCacheService implements AutoCloseable {
         long totalRequests = h + m;
         double hitRatio = totalRequests > 0 ? ((double) h / totalRequests) * 100.0 : 0.0;
 
+        boolean connOpen = connection != null && connection.isOpen();
         stats.put("enabled", config.isEnabled());
-        stats.put("redisHealthy", redisHealthy);
+        stats.put("redisHealthy", redisHealthy && connOpen);
         stats.put("hits", h);
         stats.put("misses", m);
         stats.put("puts", puts.get());
@@ -537,33 +616,41 @@ public class TrackCacheService implements AutoCloseable {
         stats.put("hitRatioPercent", Math.round(hitRatio * 100.0) / 100.0);
 
         try {
-            if (isRedisAvailable()) {
-                long now = System.currentTimeMillis();
-                if (cachedKeyCount >= 0 && (now - lastKeyCountScanTime) < KEY_COUNT_CACHE_TTL_MS) {
-                    stats.put("totalCachedKeys", cachedKeyCount);
-                } else {
-                    RedisCommands<String, String> commands = getCommands();
-                    if (commands != null) {
-                        String pattern = config.getRedis().getKeyPrefix() + "*";
-                        ScanCursor cursor = ScanCursor.INITIAL;
-                        ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(1000);
-                        long totalKeys = 0;
-                        do {
-                            KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
-                            totalKeys += scanResult.getKeys().size();
-                            cursor = scanResult;
-                        } while (!cursor.isFinished());
-                        cachedKeyCount = totalKeys;
-                        lastKeyCountScanTime = now;
-                        stats.put("totalCachedKeys", totalKeys);
-                    } else {
-                        stats.put("totalCachedKeys", "unavailable");
-                    }
-                }
+            long now = System.currentTimeMillis();
+            if (cachedKeyCount >= 0 && (now - lastKeyCountScanTime) < KEY_COUNT_CACHE_TTL_MS) {
+                stats.put("totalCachedKeys", cachedKeyCount);
             } else {
-                stats.put("totalCachedKeys", "unavailable");
+                RedisCommands<String, String> commands = getCommands();
+                if (commands != null) {
+                    if (keyCountScanInProgress.compareAndSet(false, true)) {
+                        try {
+                            String pattern = config.getRedis().getKeyPrefix() + "*";
+                            ScanCursor cursor = ScanCursor.INITIAL;
+                            ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(1000);
+                            long totalKeys = 0;
+                            do {
+                                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
+                                totalKeys += scanResult.getKeys().size();
+                                cursor = scanResult;
+                            } while (!cursor.isFinished());
+                            markRedisHealthy();
+                            cachedKeyCount = totalKeys;
+                            lastKeyCountScanTime = System.currentTimeMillis();
+                            stats.put("totalCachedKeys", totalKeys);
+                            stats.put("redisHealthy", true);
+                        } finally {
+                            keyCountScanInProgress.set(false);
+                        }
+                    } else {
+                        stats.put("totalCachedKeys", cachedKeyCount >= 0 ? cachedKeyCount : "scanning");
+                    }
+                } else {
+                    stats.put("totalCachedKeys", "unavailable");
+                }
             }
         } catch (Exception e) {
+            handleRedisError("Error scanning key count for stats", e);
+            stats.put("redisHealthy", false);
             stats.put("totalCachedKeys", "error: " + e.getMessage());
         }
 
@@ -573,37 +660,23 @@ public class TrackCacheService implements AutoCloseable {
     public Duration getTtlDuration(String loadType) {
         TrackCacheConfig.RedisConfig.TtlConfig ttl = config.getRedis().getTtl();
         if (!ttl.isEnabled()) {
-            return null; // TTL disabled: persistent in Redis
+            return null;
         }
-
+        long hours;
         if ("search".equalsIgnoreCase(loadType)) {
-            long h = ttl.getSearchHours();
-            return h > 0 ? Duration.ofHours(h) : null;
+            hours = ttl.getSearchHours();
+        } else if ("playlist".equalsIgnoreCase(loadType)) {
+            hours = ttl.getPlaylistHours();
+        } else {
+            hours = ttl.getTrackHours();
         }
-
-        if ("playlist".equalsIgnoreCase(loadType)) {
-            long h = ttl.getPlaylistHours();
-            return h > 0 ? Duration.ofHours(h) : null;
-        }
-
-        // Default or "track"
-        long h = ttl.getTrackHours();
-        return h > 0 ? Duration.ofHours(h) : null;
-    }
-
-    private boolean isRedisAvailable() {
-        if (redisHealthy) return true;
-        if (System.currentTimeMillis() - lastErrorTime > HEALTH_CHECK_COOLDOWN_MS) {
-            redisHealthy = true;
-            return true;
-        }
-        return false;
+        return hours > 0 ? Duration.ofHours(hours) : null;
     }
 
     private void handleRedisError(String message, Exception e) {
         errors.incrementAndGet();
         redisHealthy = false;
-        lastErrorTime = System.currentTimeMillis();
+        lastErrorTime.set(System.currentTimeMillis());
         log.warn("{}: {} (temporarily marking Redis as unavailable for 10s)", message, e.getMessage());
     }
 
@@ -611,20 +684,15 @@ public class TrackCacheService implements AutoCloseable {
         if (objectNode == null) return;
 
         // 1. Normalize loadType to Lavalink v4 lowercase specification
-        if (objectNode.has("loadType")) {
-            String rawType = objectNode.get("loadType").asText();
-            if ("NONE".equalsIgnoreCase(rawType)) {
-                objectNode.put("loadType", "empty");
-            } else {
-                objectNode.put("loadType", rawType.toLowerCase(Locale.ROOT));
-            }
+        String loadType = "";
+        if (objectNode.hasNonNull("loadType")) {
+            String rawType = objectNode.get("loadType").asText().trim();
+            loadType = "NONE".equalsIgnoreCase(rawType) ? "empty" : rawType.toLowerCase(Locale.ROOT);
+            objectNode.put("loadType", loadType);
         }
-
-        String loadType = objectNode.has("loadType") ? objectNode.get("loadType").asText() : "";
 
         // 2. Normalize payload structure according to Lavalink v4
         if ("search".equals(loadType)) {
-            // Lavalink v4 requires search 'data' to be an array of tracks: Track[]
             if (objectNode.has("data")) {
                 JsonNode dataNode = objectNode.get("data");
                 if (dataNode.isObject() && dataNode.has("tracks") && dataNode.get("tracks").isArray()) {
@@ -642,17 +710,13 @@ public class TrackCacheService implements AutoCloseable {
                 objectNode.set("data", objectMapper.createArrayNode());
             }
         } else if ("track".equals(loadType)) {
-            // Lavalink v4 requires track 'data' to be a single Track object
             if (objectNode.has("data")) {
                 sanitizeTrackNode(objectNode.get("data"));
             }
         } else if ("playlist".equals(loadType)) {
-            // Lavalink v4 requires playlist 'data' to be: { info: {...}, pluginInfo: {...}, tracks: Track[] }
             if (objectNode.has("data") && objectNode.get("data").isObject()) {
                 ObjectNode playlistData = (ObjectNode) objectNode.get("data");
-                if (!playlistData.has("pluginInfo") || playlistData.get("pluginInfo").isNull()) {
-                    playlistData.set("pluginInfo", objectMapper.createObjectNode());
-                }
+                sanitizeJsonObjectField(playlistData, "pluginInfo");
                 if (playlistData.has("tracks") && playlistData.get("tracks").isArray()) {
                     for (JsonNode track : playlistData.get("tracks")) {
                         sanitizeTrackNode(track);
@@ -660,7 +724,6 @@ public class TrackCacheService implements AutoCloseable {
                 }
             }
         } else if ("empty".equals(loadType)) {
-            // Lavalink v4 requires empty 'data' to be an empty object {}
             if (!objectNode.has("data") || objectNode.get("data").isNull()) {
                 objectNode.set("data", objectMapper.createObjectNode());
             }
@@ -673,7 +736,6 @@ public class TrackCacheService implements AutoCloseable {
         }
         ObjectNode track = (ObjectNode) trackNode;
 
-        // Lavalink v4 TrackInfo specification
         if (track.has("info") && track.get("info").isObject()) {
             ObjectNode info = (ObjectNode) track.get("info");
 
@@ -705,15 +767,69 @@ public class TrackCacheService implements AutoCloseable {
             }
         }
 
-        // Lavalink v4 requires pluginInfo as ObjectNode {}
-        if (!track.has("pluginInfo") || track.get("pluginInfo").isNull()) {
-            track.set("pluginInfo", objectMapper.createObjectNode());
-        }
+        sanitizeJsonObjectField(track, "pluginInfo");
+        sanitizeJsonObjectField(track, "userData");
+    }
 
-        // Lavalink v4 requires userData as ObjectNode {}
-        if (!track.has("userData") || track.get("userData").isNull()) {
-            track.set("userData", objectMapper.createObjectNode());
+    private void sanitizeJsonObjectField(ObjectNode parent, String fieldName) {
+        if (!parent.has(fieldName) || parent.get(fieldName).isNull()) {
+            parent.set(fieldName, objectMapper.createObjectNode());
+        } else {
+            parent.set(fieldName, sanitizeKotlinJsonElement(parent.get(fieldName)));
         }
+    }
+
+    /**
+     * Unwraps kotlinx.serialization.json.JsonPrimitive objects that were serialized via Jackson
+     * reflection as {"string": boolean, "content": "..."} back into native JSON primitives.
+     */
+    private JsonNode sanitizeKotlinJsonElement(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return objectMapper.nullNode();
+        }
+        if (node instanceof ObjectNode obj) {
+            if (obj.size() == 2 && obj.has("string") && obj.has("content")
+                    && obj.get("string").isBoolean()
+                    && (obj.get("content").isTextual() || obj.get("content").isNull())) {
+                boolean isString = obj.get("string").asBoolean();
+                String content = obj.get("content").isNull() ? "null" : obj.get("content").asText();
+                if (isString) {
+                    return objectMapper.getNodeFactory().textNode(content);
+                }
+                if ("null".equalsIgnoreCase(content)) {
+                    return objectMapper.nullNode();
+                }
+                if ("true".equalsIgnoreCase(content)) {
+                    return objectMapper.getNodeFactory().booleanNode(true);
+                }
+                if ("false".equalsIgnoreCase(content)) {
+                    return objectMapper.getNodeFactory().booleanNode(false);
+                }
+                try {
+                    if (content.contains(".") || content.contains("e") || content.contains("E")) {
+                        return objectMapper.getNodeFactory().numberNode(Double.parseDouble(content));
+                    }
+                    return objectMapper.getNodeFactory().numberNode(Long.parseLong(content));
+                } catch (NumberFormatException ignored) {
+                    return objectMapper.getNodeFactory().textNode(content);
+                }
+            }
+            ObjectNode cleaned = objectMapper.createObjectNode();
+            Iterator<Map.Entry<String, JsonNode>> fields = obj.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                cleaned.set(entry.getKey(), sanitizeKotlinJsonElement(entry.getValue()));
+            }
+            return cleaned;
+        }
+        if (node instanceof ArrayNode arr) {
+            ArrayNode cleaned = objectMapper.createArrayNode();
+            for (JsonNode elem : arr) {
+                cleaned.add(sanitizeKotlinJsonElement(elem));
+            }
+            return cleaned;
+        }
+        return node;
     }
 
     public TrackCacheConfig getConfig() {
@@ -727,13 +843,18 @@ public class TrackCacheService implements AutoCloseable {
             if (!cacheExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
                 cacheExecutor.shutdownNow();
             }
+        } catch (InterruptedException e) {
+            cacheExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         } catch (Exception ignored) {
         }
         syncCommands = null;
         asyncCommands = null;
-        if (connection != null && connection.isOpen()) {
+        StatefulRedisConnection<String, String> conn = this.connection;
+        this.connection = null;
+        if (conn != null && conn.isOpen()) {
             try {
-                connection.close();
+                conn.close();
             } catch (Exception ignored) {
             }
         }

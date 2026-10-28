@@ -57,10 +57,7 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("ttl", config.getRedis().getTtl().toMap());
-        response.put("cache", config.getCache().toMap());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(buildConfigSnapshot());
     }
 
     @RequestMapping(value = "/config", method = {RequestMethod.POST, RequestMethod.PATCH})
@@ -75,10 +72,15 @@ public class TrackCacheRestHandler {
         }
 
         try {
+            Boolean topLevelEnabled = getBoolean(body, "enabled");
+            if (topLevelEnabled != null) {
+                config.setEnabled(topLevelEnabled);
+            }
+
             if (body.get("ttl") instanceof Map<?, ?> ttlMap) {
-                applyTtlUpdates(ttlMap);
+                applyTtlUpdates(ttlMap, true);
             } else {
-                applyTtlUpdates(body);
+                applyTtlUpdates(body, false);
             }
 
             if (body.get("cache") instanceof Map<?, ?> cacheMap) {
@@ -90,14 +92,13 @@ public class TrackCacheRestHandler {
             return badRequestResponse(e.getMessage());
         }
 
-        log.info("TrackCache configuration updated dynamically via REST API: TTL={}, Cache={}",
-                config.getRedis().getTtl().toMap(), config.getCache().toMap());
+        log.info("TrackCache configuration updated dynamically via REST API: enabled={}, TTL={}, Cache={}",
+                config.isEnabled(), config.getRedis().getTtl().toMap(), config.getCache().toMap());
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("message", "Configuration updated successfully");
-        response.put("ttl", config.getRedis().getTtl().toMap());
-        response.put("cache", config.getCache().toMap());
+        response.putAll(buildConfigSnapshot());
         return ResponseEntity.ok(response);
     }
 
@@ -108,11 +109,14 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        Map<String, Object> result = new LinkedHashMap<>();
-        boolean cacheable = normalizer.isCacheable(identifier);
         String canonicalKey = normalizer.normalize(identifier);
-        String cachedJson = trackCacheService.getCachedResult(identifier);
+        boolean cacheable = canonicalKey != null && normalizer.isCacheableKey(canonicalKey);
+        if (!cacheable) {
+            canonicalKey = null;
+        }
+        String cachedJson = cacheable ? trackCacheService.peekCachedResult(canonicalKey) : null;
 
+        Map<String, Object> result = new LinkedHashMap<>();
         result.put("identifier", identifier);
         result.put("cacheable", cacheable);
         result.put("canonicalKey", canonicalKey);
@@ -138,26 +142,23 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        Map<String, Object> response = new LinkedHashMap<>();
-
         if (identifier != null && !identifier.trim().isEmpty()) {
             boolean evicted = trackCacheService.evict(identifier);
+            Map<String, Object> response = new LinkedHashMap<>();
             response.put("success", evicted);
             response.put("message", evicted ? "Key evicted successfully" : "Key not found or error");
             response.put("identifier", identifier);
             response.put("canonicalKey", normalizer.normalize(identifier));
-        } else if (purgeOnly) {
-            long count = trackCacheService.purgeInvalidKeys();
-            response.put("success", true);
-            response.put("purgedCount", count);
-            response.put("message", "Purged " + count + " invalid HTTP and youtube:http keys");
-        } else {
-            long count = trackCacheService.clearAll();
-            response.put("success", true);
-            response.put("clearedCount", count);
-            response.put("message", "Cleared " + count + " cached keys");
+            return ResponseEntity.ok(response);
         }
-
+        if (purgeOnly) {
+            return ResponseEntity.ok(buildPurgeInvalidResponse());
+        }
+        long count = trackCacheService.clearAll();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("clearedCount", count);
+        response.put("message", "Cleared " + count + " cached keys");
         return ResponseEntity.ok(response);
     }
 
@@ -167,43 +168,49 @@ public class TrackCacheRestHandler {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
         }
-        Map<String, Object> response = new LinkedHashMap<>();
+        return ResponseEntity.ok(buildPurgeInvalidResponse());
+    }
+
+    private Map<String, Object> buildConfigSnapshot() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("enabled", config.isEnabled());
+        snapshot.put("ttl", config.getRedis().getTtl().toMap());
+        snapshot.put("cache", config.getCache().toMap());
+        return snapshot;
+    }
+
+    private Map<String, Object> buildPurgeInvalidResponse() {
         long count = trackCacheService.purgeInvalidKeys();
+        Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("purgedCount", count);
         response.put("message", "Purged " + count + " invalid HTTP and youtube:http keys");
-        return ResponseEntity.ok(response);
+        return response;
     }
 
-    private void applyTtlUpdates(Map<?, ?> map) {
+    private void applyTtlUpdates(Map<?, ?> map, boolean nestedTtlMap) {
         TrackCacheConfig.RedisConfig.TtlConfig ttl = config.getRedis().getTtl();
 
-        Boolean enabled = getBoolean(map, "enabled");
+        Boolean enabled = getBoolean(map, "ttlEnabled", "ttl-enabled", "ttl_enabled");
+        if (enabled == null && nestedTtlMap) {
+            enabled = getBoolean(map, "enabled");
+        }
         if (enabled != null) {
             ttl.setEnabled(enabled);
         }
 
-        Long trackHours = getLong(map, "trackHours", "track-hours", "track_hours", "track");
+        Long trackHours = getNonNegativeLong(map, "trackHours", "trackHours", "track-hours", "track_hours", "track");
         if (trackHours != null) {
-            if (trackHours < 0) {
-                throw new IllegalArgumentException("trackHours cannot be negative");
-            }
             ttl.setTrackHours(trackHours);
         }
 
-        Long playlistHours = getLong(map, "playlistHours", "playlist-hours", "playlist_hours", "playlist");
+        Long playlistHours = getNonNegativeLong(map, "playlistHours", "playlistHours", "playlist-hours", "playlist_hours", "playlist");
         if (playlistHours != null) {
-            if (playlistHours < 0) {
-                throw new IllegalArgumentException("playlistHours cannot be negative");
-            }
             ttl.setPlaylistHours(playlistHours);
         }
 
-        Long searchHours = getLong(map, "searchHours", "search-hours", "search_hours", "search");
+        Long searchHours = getNonNegativeLong(map, "searchHours", "searchHours", "search-hours", "search_hours", "search");
         if (searchHours != null) {
-            if (searchHours < 0) {
-                throw new IllegalArgumentException("searchHours cannot be negative");
-            }
             ttl.setSearchHours(searchHours);
         }
     }
@@ -243,23 +250,34 @@ public class TrackCacheRestHandler {
                 Object val = map.get(k);
                 if (val == null) continue;
                 if (val instanceof Boolean b) return b;
-                return Boolean.parseBoolean(val.toString().trim());
+                String str = val.toString().trim();
+                if ("true".equalsIgnoreCase(str)) return true;
+                if ("false".equalsIgnoreCase(str)) return false;
+                throw new IllegalArgumentException("Invalid boolean for key '" + k + "': " + val);
             }
         }
         return null;
     }
 
-    private Long getLong(Map<?, ?> map, String... keys) {
+    private Long getNonNegativeLong(Map<?, ?> map, String fieldLabel, String... keys) {
         for (String k : keys) {
             if (map.containsKey(k)) {
                 Object val = map.get(k);
                 if (val == null) continue;
-                if (val instanceof Number n) return n.longValue();
-                try {
-                    return Long.parseLong(val.toString().trim());
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid number for key '" + k + "': " + val);
+                long parsed;
+                if (val instanceof Number n) {
+                    parsed = n.longValue();
+                } else {
+                    try {
+                        parsed = Long.parseLong(val.toString().trim());
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Invalid number for key '" + k + "': " + val);
+                    }
                 }
+                if (parsed < 0) {
+                    throw new IllegalArgumentException(fieldLabel + " cannot be negative");
+                }
+                return parsed;
             }
         }
         return null;
@@ -275,7 +293,7 @@ public class TrackCacheRestHandler {
     private boolean isAuthorized(String trackCachePassword) {
         String requiredPassword = config.getRestApi().getPassword();
         if (requiredPassword == null || requiredPassword.trim().isEmpty()) {
-            return true; // Optional: disabled if not specified
+            return true;
         }
         if (trackCachePassword == null) {
             return false;

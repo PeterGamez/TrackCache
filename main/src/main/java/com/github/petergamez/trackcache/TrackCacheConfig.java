@@ -1,5 +1,5 @@
 package com.github.petergamez.trackcache;
- 
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -9,7 +9,7 @@ import java.util.Map;
  */
 public class TrackCacheConfig {
 
-    private boolean enabled = true;
+    private volatile boolean enabled = true;
     private RedisConfig redis = new RedisConfig();
     private CacheConfig cache = new CacheConfig();
 

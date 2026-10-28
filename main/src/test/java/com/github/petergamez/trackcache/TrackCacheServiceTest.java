@@ -86,6 +86,51 @@ class TrackCacheServiceTest {
         assertNull(trackCacheService.getCachedResult("https://www.youtube.com/@channel"));
         assertNull(trackCacheService.getCachedResult(null));
         assertNull(trackCacheService.getCachedResult("   "));
+
+        // Uncacheable URLs must not pollute cache miss metrics
+        assertEquals(0L, trackCacheService.getStats().get("misses"));
+    }
+
+    @Test
+    void testSanitizeKotlinJsonElementInPluginInfo() {
+        ObjectNode loadResult = objectMapper.createObjectNode();
+        loadResult.put("loadType", "TRACK");
+        ObjectNode track = loadResult.putObject("data");
+        track.put("encoded", "QAAA...");
+        ObjectNode info = track.putObject("info");
+        info.put("identifier", "dQw4w9WgXcQ");
+        info.put("seekable", true);
+        info.put("stream", false);
+
+        // Simulate Jackson reflection output of kotlinx.serialization.json.JsonPrimitive
+        ObjectNode pluginInfo = track.putObject("pluginInfo");
+        ObjectNode albumName = pluginInfo.putObject("albumName");
+        albumName.put("string", true);
+        albumName.put("content", "Whenever You Need Somebody");
+
+        ObjectNode isPreview = pluginInfo.putObject("isPreview");
+        isPreview.put("string", false);
+        isPreview.put("content", "false");
+
+        ObjectNode totalTracks = pluginInfo.putObject("totalTracks");
+        totalTracks.put("string", false);
+        totalTracks.put("content", "10");
+
+        trackCacheService.sanitizeLoadResultNode(loadResult);
+
+        assertEquals("track", loadResult.get("loadType").asText());
+        assertTrue(info.get("isSeekable").asBoolean());
+        assertFalse(info.get("isStream").asBoolean());
+        assertFalse(info.has("seekable"));
+        assertFalse(info.has("stream"));
+
+        ObjectNode sanitizedPluginInfo = (ObjectNode) track.get("pluginInfo");
+        assertEquals("Whenever You Need Somebody", sanitizedPluginInfo.get("albumName").asText());
+        assertTrue(sanitizedPluginInfo.get("albumName").isTextual());
+        assertFalse(sanitizedPluginInfo.get("isPreview").asBoolean());
+        assertTrue(sanitizedPluginInfo.get("isPreview").isBoolean());
+        assertEquals(10L, sanitizedPluginInfo.get("totalTracks").asLong());
+        assertTrue(sanitizedPluginInfo.get("totalTracks").isNumber());
     }
 
     @Test
@@ -93,6 +138,7 @@ class TrackCacheServiceTest {
         var stats = trackCacheService.getStats();
         assertNotNull(stats);
         assertEquals(true, stats.get("enabled"));
+        assertEquals(false, stats.get("redisHealthy"));
         assertEquals(0L, stats.get("hits"));
         assertEquals(0L, stats.get("misses"));
         assertEquals("unavailable", stats.get("totalCachedKeys"));

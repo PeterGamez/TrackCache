@@ -109,10 +109,12 @@ public class TrackCacheRestHandler {
             return unauthorizedResponse();
         }
         Map<String, Object> result = new LinkedHashMap<>();
+        boolean cacheable = normalizer.isCacheable(identifier);
         String canonicalKey = normalizer.normalize(identifier);
         String cachedJson = trackCacheService.getCachedResult(identifier);
 
         result.put("identifier", identifier);
+        result.put("cacheable", cacheable);
         result.put("canonicalKey", canonicalKey);
         result.put("cached", cachedJson != null);
         if (cachedJson != null) {
@@ -131,6 +133,7 @@ public class TrackCacheRestHandler {
     @PostMapping("/clear")
     public ResponseEntity<Map<String, Object>> clear(
             @RequestParam(value = "identifier", required = false) String identifier,
+            @RequestParam(value = "purgeOnly", defaultValue = "false") boolean purgeOnly,
             @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
         if (!isAuthorized(trackCachePassword)) {
             return unauthorizedResponse();
@@ -143,6 +146,11 @@ public class TrackCacheRestHandler {
             response.put("message", evicted ? "Key evicted successfully" : "Key not found or error");
             response.put("identifier", identifier);
             response.put("canonicalKey", normalizer.normalize(identifier));
+        } else if (purgeOnly) {
+            long count = trackCacheService.purgeInvalidKeys();
+            response.put("success", true);
+            response.put("purgedCount", count);
+            response.put("message", "Purged " + count + " invalid HTTP and youtube:http keys");
         } else {
             long count = trackCacheService.clearAll();
             response.put("success", true);
@@ -150,6 +158,20 @@ public class TrackCacheRestHandler {
             response.put("message", "Cleared " + count + " cached keys");
         }
 
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/purge-invalid")
+    public ResponseEntity<Map<String, Object>> purgeInvalid(
+            @RequestHeader(value = "X-TrackCache-Password", required = false) String trackCachePassword) {
+        if (!isAuthorized(trackCachePassword)) {
+            return unauthorizedResponse();
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        long count = trackCacheService.purgeInvalidKeys();
+        response.put("success", true);
+        response.put("purgedCount", count);
+        response.put("message", "Purged " + count + " invalid HTTP and youtube:http keys");
         return ResponseEntity.ok(response);
     }
 

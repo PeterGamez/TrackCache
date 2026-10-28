@@ -17,6 +17,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -79,6 +80,9 @@ public class TrackCacheService implements AutoCloseable {
         this.objectMapper = objectMapper;
         this.redisClient = redisClient;
         this.connection = connection;
+        if (connection != null && connection.isOpen()) {
+            schedulePurgeInvalidKeys();
+        }
     }
 
     public TrackCacheService(TrackCacheConfig config,
@@ -104,6 +108,7 @@ public class TrackCacheService implements AutoCloseable {
             }
             try {
                 this.connection = redisClient.connect();
+                schedulePurgeInvalidKeys();
                 return this.connection.sync();
             } catch (Exception e) {
                 handleRedisError("Failed to connect to Redis", e);
@@ -116,8 +121,12 @@ public class TrackCacheService implements AutoCloseable {
         return config.isEnabled();
     }
 
+    public boolean isCacheable(String identifier) {
+        return normalizer.isCacheable(identifier);
+    }
+
     public String getCachedResult(String identifier) {
-        if (!config.isEnabled() || !isRedisAvailable()) {
+        if (!config.isEnabled() || !isRedisAvailable() || !normalizer.isCacheable(identifier)) {
             return null;
         }
 
@@ -129,6 +138,11 @@ public class TrackCacheService implements AutoCloseable {
             }
 
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
+            if (fullKey == null) {
+                misses.incrementAndGet();
+                return null;
+            }
+
             String cached = commands.get(fullKey);
 
             if (cached != null && !cached.isEmpty()) {
@@ -148,7 +162,7 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public void cacheResult(String identifier, Object responseBody) {
-        if (!config.isEnabled() || !isRedisAvailable() || responseBody == null) {
+        if (!config.isEnabled() || !isRedisAvailable() || responseBody == null || !normalizer.isCacheable(identifier)) {
             return;
         }
         try {
@@ -159,10 +173,12 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     private void doCacheResult(String identifier, Object responseBody) {
-
         try {
-            JsonNode rootNode;
+            if (!normalizer.isCacheable(identifier)) {
+                return;
+            }
 
+            JsonNode rootNode;
             if (responseBody instanceof String) {
                 rootNode = objectMapper.readTree((String) responseBody);
             } else {
@@ -186,6 +202,15 @@ public class TrackCacheService implements AutoCloseable {
                 return;
             }
 
+            // Do not cache track if it is a live stream or HTTP/local source track
+            if ("track".equalsIgnoreCase(loadType)) {
+                JsonNode dataNode = objectNode.get("data");
+                if (!isTrackNodeCacheable(dataNode)) {
+                    log.debug("Skipping caching track with uncacheable attributes (HTTP source or isStream) for: '{}'", identifier);
+                    return;
+                }
+            }
+
             if ("search".equalsIgnoreCase(loadType) && !config.getCache().isSearches()) {
                 log.debug("Skipping caching search response for: '{}'", identifier);
                 if (config.getCache().isIndividualSearchTracks()) {
@@ -207,6 +232,11 @@ public class TrackCacheService implements AutoCloseable {
             }
 
             String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
+            if (fullKey == null) {
+                log.debug("Cannot resolve valid cache key for: '{}', skipping caching", identifier);
+                return;
+            }
+
             Duration ttl = getTtlDuration(loadType);
             String json = objectMapper.writeValueAsString(objectNode);
 
@@ -230,6 +260,37 @@ public class TrackCacheService implements AutoCloseable {
         } catch (Exception e) {
             handleRedisError("Error writing to Redis for identifier: " + identifier, e);
         }
+    }
+
+    public boolean isTrackNodeCacheable(JsonNode trackNode) {
+        if (trackNode == null || !trackNode.isObject()) {
+            return false;
+        }
+        JsonNode infoNode = trackNode.get("info");
+        if (infoNode == null || !infoNode.isObject()) {
+            return false;
+        }
+
+        // Live streams must never be cached
+        if (infoNode.hasNonNull("isStream") && infoNode.get("isStream").asBoolean(false)) {
+            return false;
+        }
+
+        // Direct HTTP or local source tracks must never be cached
+        String sourceName = infoNode.hasNonNull("sourceName") ? infoNode.get("sourceName").asText().trim() : "";
+        if ("http".equalsIgnoreCase(sourceName) || "local".equalsIgnoreCase(sourceName)) {
+            return false;
+        }
+
+        // Validate URI: reject generic HTTP/HTTPS URLs
+        String uri = infoNode.hasNonNull("uri") ? infoNode.get("uri").asText().trim() : null;
+        if (uri != null && !uri.isEmpty() && !"null".equalsIgnoreCase(uri)) {
+            if ((uri.startsWith("http://") || uri.startsWith("https://")) && !normalizer.isRecognizedPlatformUrl(uri)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void decomposeAndCacheSearchTracks(JsonNode searchRoot, Duration ttl) {
@@ -271,9 +332,11 @@ public class TrackCacheService implements AutoCloseable {
 
             int count = 0;
             for (JsonNode trackNode : tracksNode) {
-                JsonNode infoNode = trackNode.get("info");
-                if (infoNode == null) continue;
+                if (!isTrackNodeCacheable(trackNode)) {
+                    continue;
+                }
 
+                JsonNode infoNode = trackNode.get("info");
                 String uri = infoNode.hasNonNull("uri") ? infoNode.get("uri").asText().trim() : null;
                 if (uri != null && (uri.isEmpty() || "null".equalsIgnoreCase(uri))) {
                     uri = null;
@@ -287,12 +350,12 @@ public class TrackCacheService implements AutoCloseable {
                 String trackCanonicalKey = null;
                 if (uri != null) {
                     trackCanonicalKey = normalizer.normalize(uri);
-                } else if (trackId != null) {
+                } else if (trackId != null && !trackId.startsWith("http://") && !trackId.startsWith("https://")) {
                     String platform = !sourceName.isEmpty() ? sourceName.toLowerCase() : "track";
                     trackCanonicalKey = platform + ":track:" + trackId;
                 }
 
-                if (trackCanonicalKey == null || trackCanonicalKey.isEmpty()) {
+                if (trackCanonicalKey == null || trackCanonicalKey.isEmpty() || !normalizer.isCacheableKey(trackCanonicalKey)) {
                     continue;
                 }
 
@@ -319,16 +382,92 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public boolean evict(String identifier) {
-        if (!isRedisAvailable()) return false;
+        if (!isRedisAvailable() || identifier == null || identifier.trim().isEmpty()) return false;
         try {
             RedisCommands<String, String> commands = getCommands();
             if (commands == null) return false;
-            String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
+            String prefix = config.getRedis().getKeyPrefix();
+            String fullKey;
+            if (identifier.startsWith(prefix)) {
+                fullKey = identifier;
+            } else {
+                String canonical = normalizer.normalize(identifier);
+                if (canonical != null && !canonical.isEmpty()) {
+                    fullKey = prefix + canonical;
+                } else {
+                    fullKey = prefix + identifier.trim();
+                }
+            }
             Long deleted = commands.del(fullKey);
             return deleted != null && deleted > 0;
         } catch (Exception e) {
             handleRedisError("Error evicting key for: " + identifier, e);
             return false;
+        }
+    }
+
+    public void schedulePurgeInvalidKeys() {
+        if (!config.isEnabled() || !isRedisAvailable()) return;
+        try {
+            cacheExecutor.submit(this::purgeInvalidKeys);
+        } catch (Exception e) {
+            log.debug("Could not schedule invalid keys purge: {}", e.getMessage());
+        }
+    }
+
+    public long clearKeysMatching(String pattern) {
+        if (!isRedisAvailable()) return 0;
+        try {
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) return 0;
+            ScanCursor cursor = ScanCursor.INITIAL;
+            ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(500);
+            long totalDeleted = 0;
+            do {
+                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
+                List<String> keys = scanResult.getKeys();
+                if (keys != null && !keys.isEmpty()) {
+                    Long deleted = commands.del(keys.toArray(new String[0]));
+                    if (deleted != null) {
+                        totalDeleted += deleted;
+                    }
+                }
+                cursor = scanResult;
+            } while (!cursor.isFinished());
+            return totalDeleted;
+        } catch (Exception e) {
+            handleRedisError("Error clearing keys matching: " + pattern, e);
+            return 0;
+        }
+    }
+
+    public long purgeInvalidKeys() {
+        if (!isRedisAvailable()) return 0;
+        try {
+            RedisCommands<String, String> commands = getCommands();
+            if (commands == null) return 0;
+
+            String prefix = config.getRedis().getKeyPrefix();
+            List<String> badPatterns = Arrays.asList(
+                    prefix + "youtube:http*",
+                    prefix + "youtube:https*",
+                    prefix + "youtube://*",
+                    prefix + "url:*",
+                    prefix + "http:*",
+                    prefix + "https:*"
+            );
+
+            long totalDeleted = 0;
+            for (String pattern : badPatterns) {
+                totalDeleted += clearKeysMatching(pattern);
+            }
+            if (totalDeleted > 0) {
+                log.info("Purged {} invalid/legacy HTTP and youtube:http keys from Redis.", totalDeleted);
+            }
+            return totalDeleted;
+        } catch (Exception e) {
+            handleRedisError("Error purging invalid keys from Redis", e);
+            return 0;
         }
     }
 
@@ -420,10 +559,6 @@ public class TrackCacheService implements AutoCloseable {
         // Default or "track"
         long h = ttl.getTrackHours();
         return h > 0 ? Duration.ofHours(h) : null;
-    }
-
-    public Duration getTtlDuration() {
-        return getTtlDuration("track");
     }
 
     private boolean isRedisAvailable() {

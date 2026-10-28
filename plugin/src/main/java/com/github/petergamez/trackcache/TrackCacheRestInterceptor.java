@@ -47,7 +47,7 @@ public class TrackCacheRestInterceptor implements RestInterceptor {
         }
 
         String identifier = request.getParameter("identifier");
-        if (identifier == null || identifier.trim().isEmpty()) {
+        if (identifier == null || identifier.trim().isEmpty() || !trackCacheService.isCacheable(identifier)) {
             return true;
         }
 

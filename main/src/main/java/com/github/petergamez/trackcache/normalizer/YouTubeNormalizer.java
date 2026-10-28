@@ -52,4 +52,28 @@ public class YouTubeNormalizer implements PlatformNormalizer {
 
         return null;
     }
+
+    /**
+     * Extracts an 11-character YouTube video ID from a URL or query, if present.
+     *
+     * @param query The input identifier or URL
+     * @return 11-character video ID, or null if not present
+     */
+    public static String extractVideoId(String query) {
+        if (query == null || query.isEmpty()) {
+            return null;
+        }
+        Matcher videoIdMatcher = YOUTUBE_VIDEO_ID_PARAM.matcher(query);
+        if (videoIdMatcher.find()) {
+            return videoIdMatcher.group(1);
+        }
+        Matcher pathMatcher = YOUTUBE_PATH_ID_PATTERN.matcher(query);
+        if (pathMatcher.find()) {
+            return pathMatcher.group(1);
+        }
+        if (YOUTUBE_RAW_ID_PATTERN.matcher(query.trim()).matches()) {
+            return query.trim();
+        }
+        return null;
+    }
 }

@@ -1,6 +1,7 @@
 package com.github.petergamez.trackcache;
 
 import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
+import com.github.petergamez.trackcache.normalizer.YouTubeNormalizer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +48,15 @@ class UrlNormalizerTest {
         assertNull(normalizer.normalize("youtube:http://example.com/something"));
         assertNull(normalizer.normalize("https://evil.com/watch?v=dQw4w9WgXcQ&ref=youtube"));
         assertNull(normalizer.normalize("ytsearch:   "));
+
+        // Extract Video ID helper
+        assertEquals("dQw4w9WgXcQ", YouTubeNormalizer.extractVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAl54-B8Hk5R"));
+        assertEquals("dQw4w9WgXcQ", YouTubeNormalizer.extractVideoId("https://youtu.be/dQw4w9WgXcQ?list=PLrAl54-B8Hk5R"));
+        assertEquals("dQw4w9WgXcQ", YouTubeNormalizer.extractVideoId("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAl54-B8Hk5R"));
+        assertEquals("dQw4w9WgXcQ", YouTubeNormalizer.extractVideoId("dQw4w9WgXcQ"));
+        assertNull(YouTubeNormalizer.extractVideoId("https://www.youtube.com/playlist?list=PLrAl54-B8Hk5R"));
+        assertNull(YouTubeNormalizer.extractVideoId(null));
+        assertNull(YouTubeNormalizer.extractVideoId(""));
     }
 
     @Test

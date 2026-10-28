@@ -101,7 +101,7 @@ public class TrackCacheRestHandler {
         if (!cacheable) {
             canonicalKey = null;
         }
-        String cachedJson = cacheable ? trackCache.peekCachedResult(canonicalKey) : null;
+        String cachedJson = cacheable ? trackCache.peekCachedResult(identifier) : null;
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("identifier", identifier);

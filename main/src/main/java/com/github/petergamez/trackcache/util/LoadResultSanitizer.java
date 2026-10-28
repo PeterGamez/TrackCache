@@ -46,6 +46,11 @@ public class LoadResultSanitizer {
             return false;
         }
 
+        // Must contain a valid non-empty encoded track data string
+        if (getNonEmptyText(trackNode, "encoded") == null) {
+            return false;
+        }
+
         // Validate URI: reject generic HTTP/HTTPS URLs
         String uri = getNonEmptyText(infoNode, "uri");
         if (uri != null && (uri.startsWith("http://") || uri.startsWith("https://")) && !normalizer.isCacheable(uri)) {

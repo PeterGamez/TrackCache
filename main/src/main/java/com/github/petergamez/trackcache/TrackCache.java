@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
+import com.github.petergamez.trackcache.normalizer.YouTubeNormalizer;
 import com.github.petergamez.trackcache.redis.RedisConnectionManager;
 import com.github.petergamez.trackcache.redis.TrackCacheCleaner;
 import com.github.petergamez.trackcache.util.LoadResultSanitizer;
@@ -27,6 +28,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -43,6 +45,7 @@ public class TrackCache implements AutoCloseable {
     private final TrackCacheStats stats;
     private final TrackDecomposer decomposer;
     private final TrackCacheCleaner cleaner;
+    private final AtomicBoolean initialPurgeDone = new AtomicBoolean(false);
 
     private final ExecutorService cacheExecutor = new ThreadPoolExecutor(
             2,
@@ -172,7 +175,7 @@ public class TrackCache implements AutoCloseable {
                     stats.recordHit();
                 }
                 log.debug("Cache HIT for identifier: '{}' [key: {}]", identifier, fullKey);
-                return cached;
+                return adjustPlaylistSelectedTrack(identifier, cached);
             } else {
                 if (recordStats) {
                     stats.recordMiss();
@@ -330,11 +333,85 @@ public class TrackCache implements AutoCloseable {
     }
 
     public void schedulePurgeInvalidKeys() {
-        if (!config.isEnabled()) return;
+        if (!config.isEnabled() || !initialPurgeDone.compareAndSet(false, true)) {
+            return;
+        }
         try {
             cacheExecutor.submit(this::purgeInvalidKeys);
         } catch (Exception e) {
             log.debug("Could not schedule invalid keys purge: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Dynamically adjusts the 'selectedTrack' index in a cached playlist response
+     * according to the specific video requested in the input identifier (e.g. YouTube watch?v=...&list=...).
+     * If no video ID was specified in the request (e.g. playlist?list=...), selectedTrack is normalized to -1.
+     *
+     * @param identifier The raw requested identifier or URL
+     * @param cachedJson The cached JSON string from Redis
+     * @return Adjusted JSON payload or the original cachedJson if no adjustment was needed
+     */
+    public String adjustPlaylistSelectedTrack(String identifier, String cachedJson) {
+        if (identifier == null || cachedJson == null || !cachedJson.contains("\"playlist\"")) {
+            return cachedJson;
+        }
+
+        try {
+            if (!cachedJson.contains("\"selectedTrack\"")) {
+                return cachedJson;
+            }
+
+            JsonNode rootNode = objectMapper.readTree(cachedJson);
+            if (!rootNode.isObject()) {
+                return cachedJson;
+            }
+
+            JsonNode loadTypeNode = rootNode.get("loadType");
+            if (loadTypeNode == null || !"playlist".equalsIgnoreCase(loadTypeNode.asText())) {
+                return cachedJson;
+            }
+
+            JsonNode dataNode = rootNode.get("data");
+            if (dataNode == null || !dataNode.isObject()) {
+                return cachedJson;
+            }
+
+            JsonNode infoNode = dataNode.get("info");
+            if (infoNode == null || !infoNode.isObject()) {
+                return cachedJson;
+            }
+
+            ObjectNode infoObject = (ObjectNode) infoNode;
+            int currentSelectedTrack = infoObject.has("selectedTrack") ? infoObject.get("selectedTrack").asInt(-1) : -1;
+
+            String targetVideoId = YouTubeNormalizer.extractVideoId(identifier);
+            int desiredSelectedTrack = -1;
+
+            if (targetVideoId != null) {
+                JsonNode tracksNode = dataNode.get("tracks");
+                if (tracksNode != null && tracksNode.isArray()) {
+                    int idx = 0;
+                    for (JsonNode trackNode : tracksNode) {
+                        JsonNode trackInfo = trackNode.get("info");
+                        if (trackInfo != null && targetVideoId.equals(sanitizer.getNonEmptyText(trackInfo, "identifier"))) {
+                            desiredSelectedTrack = idx;
+                            break;
+                        }
+                        idx++;
+                    }
+                }
+            }
+
+            if (currentSelectedTrack == desiredSelectedTrack) {
+                return cachedJson;
+            }
+
+            infoObject.put("selectedTrack", desiredSelectedTrack);
+            return objectMapper.writeValueAsString(rootNode);
+        } catch (Exception e) {
+            log.debug("Failed to adjust selectedTrack for identifier: {}", identifier, e);
+            return cachedJson;
         }
     }
 

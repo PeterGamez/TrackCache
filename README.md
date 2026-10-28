@@ -107,7 +107,7 @@ Add the following block to your Lavalink `application.yml`:
 ```yaml
 lavalink:
   plugins:
-    - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.1.3"
+    - dependency: "com.github.petergamez.trackcache:trackcache-plugin:1.2.0"
       repository: "https://jitpack.io" # Or place the .jar file directly into the plugins/ directory
 
 plugins:

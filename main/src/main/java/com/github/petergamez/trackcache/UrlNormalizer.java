@@ -66,6 +66,11 @@ public class UrlNormalizer {
 
         // Pandora
         SEARCH_PREFIX_MAP.put("pdsearch", "pandora");
+
+        // Bilibili
+        SEARCH_PREFIX_MAP.put("bilibilisearch", "bilibili");
+        SEARCH_PREFIX_MAP.put("bilisearch", "bilibili");
+        SEARCH_PREFIX_MAP.put("bsearch", "bilibili");
     }
 
     private static final Pattern GENERIC_SEARCH_PREFIX_PATTERN = Pattern.compile("^([a-zA-Z0-9_]+):\\s*(.*)$");
@@ -103,6 +108,7 @@ public class UrlNormalizer {
             "^(?:https?://)?music\\.apple\\.com/[a-z]{2}/(album|playlist|song)/([^?]+)",
             Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern APPLE_MUSIC_I_PARAM = Pattern.compile("[?&]i=([0-9]+)");
 
     // Deezer Patterns
     private static final Pattern DEEZER_URL_PATTERN = Pattern.compile(
@@ -142,9 +148,27 @@ public class UrlNormalizer {
             Pattern.CASE_INSENSITIVE
     );
 
+    // Bilibili Patterns
+    private static final Pattern BILIBILI_VIDEO_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:www\\.|m\\.)?bilibili\\.com/video/((?:BV[a-zA-Z0-9]+)|(?:av[0-9]+))",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern BILIBILI_B23_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?b23\\.tv/((?:BV[a-zA-Z0-9]+)|(?:av[0-9]+))",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern BILIBILI_AUDIO_URL_PATTERN = Pattern.compile(
+            "^(?:https?://)?(?:www\\.|m\\.)?bilibili\\.com/audio/(au[0-9]+)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern BILIBILI_RAW_ID_PATTERN = Pattern.compile(
+            "^(?:BV[a-zA-Z0-9]{10}|av[0-9]+|au[0-9]+)$",
+            Pattern.CASE_INSENSITIVE
+    );
+
     /**
      * Normalizes the identifier into a canonical key using platform names.
-     * Returns null if the identifier is not cacheable (e.g. generic HTTP/HTTPS, invalid YouTube URL, etc.).
+     * Returns null if the identifier is not cacheable (e.g. generic HTTP/HTTPS, invalid platform URL, etc.).
      *
      * @param identifier The raw identifier/URL/query from /v4/loadtracks
      * @return Canonical key representation, or null if uncacheable
@@ -156,69 +180,167 @@ public class UrlNormalizer {
 
         String query = identifier.trim();
 
-        // 0. Handle direct "youtube:" prefix (e.g. youtube:http://..., youtube:dQw4w9WgXcQ, youtube:track:...)
-        if (query.regionMatches(true, 0, "youtube:", 0, 8)) {
-            return normalizeYouTubePrefix(query);
+        // 1. If query is already an established canonical key, return immediately
+        if (isCacheableKey(query)) {
+            return query;
         }
 
-        // 1. Check Search Queries & Prefixes (Lavalink, PulseLink, LavaSrc)
-        Matcher prefixMatcher = GENERIC_SEARCH_PREFIX_PATTERN.matcher(query);
-        if (prefixMatcher.find()) {
-            String prefix = prefixMatcher.group(1).toLowerCase();
-            String rest = prefixMatcher.group(2).trim().replaceAll("\\s+", " ");
+        // 2. Handle prefix patterns (<prefix>:<rest>)
+        if (!query.startsWith("http://") && !query.startsWith("https://")) {
+            Matcher prefixMatcher = GENERIC_SEARCH_PREFIX_PATTERN.matcher(query);
+            if (prefixMatcher.find()) {
+                String prefix = prefixMatcher.group(1).toLowerCase();
+                String rest = prefixMatcher.group(2).trim();
 
-            // If the search query is an HTTP/HTTPS URL, do not cache as search
-            if (rest.startsWith("http://") || rest.startsWith("https://")) {
-                if (isYouTubeUrl(rest)) {
-                    return normalizeYouTube(rest);
+                // If rest is an HTTP/HTTPS URL, unwrap and normalize
+                if (rest.startsWith("http://") || rest.startsWith("https://")) {
+                    return normalize(rest);
                 }
-                // Do not cache search queries of generic HTTP URLs
-                return null;
-            }
 
-            if ("sprec".equals(prefix)) {
-                return normalizeSpotifyRec(rest);
-            }
-
-            if (SEARCH_PREFIX_MAP.containsKey(prefix)) {
-                String platform = SEARCH_PREFIX_MAP.get(prefix);
-                if (platform.contains(":")) {
-                    return platform + ":" + rest;
+                // LavaSrc Spotify recommendations
+                if ("sprec".equals(prefix)) {
+                    return normalizeSpotifyRec(rest);
                 }
-                return platform + ":search:" + rest;
-            } else if (prefix.endsWith("search")) {
-                String platform = prefix.substring(0, prefix.length() - 6);
-                return platform + ":search:" + rest;
+
+                // Standard search prefix mapping
+                if (SEARCH_PREFIX_MAP.containsKey(prefix)) {
+                    String platform = SEARCH_PREFIX_MAP.get(prefix);
+                    if (platform.contains(":")) {
+                        return platform + ":" + rest;
+                    }
+                    return platform + ":search:" + rest;
+                } else if (prefix.endsWith("search")) {
+                    String platform = prefix.substring(0, prefix.length() - 6);
+                    return platform + ":search:" + rest;
+                }
+
+                // Client prefix fallback (e.g. youtube:dQw4w9WgXcQ, bilibili:BV1xx411c7mD)
+                String normalizedRest = normalize(rest);
+                if (normalizedRest != null) {
+                    return normalizedRest;
+                }
             }
         }
 
-        // 2. Check Spotify URI
-        Matcher spotifyUriMatcher = SPOTIFY_URI_PATTERN.matcher(query);
-        if (spotifyUriMatcher.find()) {
-            String type = spotifyUriMatcher.group(1).toLowerCase();
-            String id = spotifyUriMatcher.group(2);
-            return "spotify:" + type + ":" + id;
+        // 3. Platform Normalizers (Symmetric & Uniform)
+        String result;
+        if ((result = normalizeYouTube(query)) != null) return result;
+        if ((result = normalizeSpotify(query)) != null) return result;
+        if ((result = normalizeBilibili(query)) != null) return result;
+        if ((result = normalizeSoundCloud(query)) != null) return result;
+        if ((result = normalizeAppleMusic(query)) != null) return result;
+        if ((result = normalizeDeezer(query)) != null) return result;
+        if ((result = normalizeAmazonMusic(query)) != null) return result;
+        if ((result = normalizeTidal(query)) != null) return result;
+        if ((result = normalizeYandexMusic(query)) != null) return result;
+
+        // 4. Any unmatched HTTP/HTTPS URL is generic/unsupported -> DO NOT CACHE
+        if (query.startsWith("http://") || query.startsWith("https://")) {
+            return null;
         }
 
-        // 3. Check Spotify HTTP URL
-        Matcher spotifyUrlMatcher = SPOTIFY_URL_PATTERN.matcher(query);
-        if (spotifyUrlMatcher.find()) {
-            String type = spotifyUrlMatcher.group(1).toLowerCase();
-            String id = spotifyUrlMatcher.group(2);
-            return "spotify:" + type + ":" + id;
+        return null;
+    }
+
+    private String normalizeYouTube(String query) {
+        if (query == null || query.isEmpty()) {
+            return null;
         }
 
-        // 4. Check YouTube (URLs & domain variations)
-        if (isYouTubeUrl(query)) {
-            return normalizeYouTube(query);
-        }
-
-        // If it's a bare 11-char YouTube ID (e.g. dQw4w9WgXcQ)
+        // Bare 11-char ID
         if (YOUTUBE_RAW_ID_PATTERN.matcher(query).matches()) {
             return "youtube:track:" + query;
         }
 
-        // 5. Check SoundCloud
+        String lower = query.toLowerCase();
+        if (!lower.contains("youtube") && !lower.contains("youtu.be")) {
+            return null;
+        }
+
+        // 1. Detect playlist parameter 'list='
+        Matcher listMatcher = YOUTUBE_LIST_PATTERN.matcher(query);
+        if (listMatcher.find()) {
+            String listId = listMatcher.group(1);
+            return "youtube:playlist:" + listId;
+        }
+
+        // 2. youtu.be shortlinks
+        Matcher youtuBeMatcher = YOUTU_BE_PATTERN.matcher(query);
+        if (youtuBeMatcher.find()) {
+            return "youtube:track:" + youtuBeMatcher.group(1);
+        }
+
+        // 3. YouTube Shorts
+        Matcher shortsMatcher = YOUTUBE_SHORTS_PATTERN.matcher(query);
+        if (shortsMatcher.find()) {
+            return "youtube:track:" + shortsMatcher.group(1);
+        }
+
+        // 4. YouTube Live
+        Matcher liveMatcher = YOUTUBE_LIVE_PATTERN.matcher(query);
+        if (liveMatcher.find()) {
+            return "youtube:track:" + liveMatcher.group(1);
+        }
+
+        // 5. YouTube Embed
+        Matcher embedMatcher = YOUTUBE_EMBED_PATTERN.matcher(query);
+        if (embedMatcher.find()) {
+            return "youtube:track:" + embedMatcher.group(1);
+        }
+
+        // 6. YouTube /v/
+        Matcher vMatcher = YOUTUBE_V_PATTERN.matcher(query);
+        if (vMatcher.find()) {
+            return "youtube:track:" + vMatcher.group(1);
+        }
+
+        // 7. YouTube /watch/ID
+        Matcher watchPathMatcher = YOUTUBE_WATCH_PATH_PATTERN.matcher(query);
+        if (watchPathMatcher.find()) {
+            return "youtube:track:" + watchPathMatcher.group(1);
+        }
+
+        // 8. Standard ?v=ID parameter
+        Matcher videoIdMatcher = YOUTUBE_VIDEO_ID_PARAM.matcher(query);
+        if (videoIdMatcher.find()) {
+            return "youtube:track:" + videoIdMatcher.group(1);
+        }
+
+        return null;
+    }
+
+    private String normalizeSpotify(String query) {
+        Matcher spotifyUriMatcher = SPOTIFY_URI_PATTERN.matcher(query);
+        if (spotifyUriMatcher.find()) {
+            return "spotify:" + spotifyUriMatcher.group(1).toLowerCase() + ":" + spotifyUriMatcher.group(2);
+        }
+        Matcher spotifyUrlMatcher = SPOTIFY_URL_PATTERN.matcher(query);
+        if (spotifyUrlMatcher.find()) {
+            return "spotify:" + spotifyUrlMatcher.group(1).toLowerCase() + ":" + spotifyUrlMatcher.group(2);
+        }
+        return null;
+    }
+
+    private String normalizeBilibili(String query) {
+        Matcher biliVideoMatcher = BILIBILI_VIDEO_URL_PATTERN.matcher(query);
+        if (biliVideoMatcher.find()) {
+            return "bilibili:video:" + biliVideoMatcher.group(1);
+        }
+        Matcher biliB23Matcher = BILIBILI_B23_URL_PATTERN.matcher(query);
+        if (biliB23Matcher.find()) {
+            return "bilibili:video:" + biliB23Matcher.group(1);
+        }
+        Matcher biliAudioMatcher = BILIBILI_AUDIO_URL_PATTERN.matcher(query);
+        if (biliAudioMatcher.find()) {
+            return "bilibili:audio:" + biliAudioMatcher.group(1);
+        }
+        if (BILIBILI_RAW_ID_PATTERN.matcher(query).matches()) {
+            return query.toLowerCase().startsWith("au") ? "bilibili:audio:" + query : "bilibili:video:" + query;
+        }
+        return null;
+    }
+
+    private String normalizeSoundCloud(String query) {
         Matcher scMatcher = SOUNDCLOUD_URL_PATTERN.matcher(query);
         if (scMatcher.find()) {
             String cleanPath = stripTrackingAndTrailingSlash(scMatcher.group(1));
@@ -227,30 +349,36 @@ public class UrlNormalizer {
             }
             return "soundcloud:track:" + cleanPath;
         }
+        return null;
+    }
 
-        // 6. Check Apple Music
+    private String normalizeAppleMusic(String query) {
         Matcher appleMatcher = APPLE_MUSIC_URL_PATTERN.matcher(query);
         if (appleMatcher.find()) {
             String type = appleMatcher.group(1).toLowerCase();
             String idOrPath = stripTrackingAndTrailingSlash(appleMatcher.group(2));
             if (query.contains("?i=") || query.contains("&i=")) {
-                Matcher iMatcher = Pattern.compile("[?&]i=([0-9]+)").matcher(query);
+                Matcher iMatcher = APPLE_MUSIC_I_PARAM.matcher(query);
                 if (iMatcher.find()) {
                     return "applemusic:song:" + iMatcher.group(1);
                 }
             }
             return "applemusic:" + type + ":" + idOrPath;
         }
+        return null;
+    }
 
-        // 7. Check Deezer
+    private String normalizeDeezer(String query) {
         Matcher deezerMatcher = DEEZER_URL_PATTERN.matcher(query);
         if (deezerMatcher.find()) {
             String type = deezerMatcher.group(1).toLowerCase();
             String id = deezerMatcher.group(2);
             return "deezer:" + type + ":" + id;
         }
+        return null;
+    }
 
-        // 8. Check Amazon Music
+    private String normalizeAmazonMusic(String query) {
         Matcher amazonMatcher = AMAZON_MUSIC_URL_PATTERN.matcher(query);
         if (amazonMatcher.find()) {
             String type = amazonMatcher.group(1).toLowerCase();
@@ -260,8 +388,10 @@ public class UrlNormalizer {
             String id = amazonMatcher.group(2);
             return "amazonmusic:" + type + ":" + id;
         }
+        return null;
+    }
 
-        // 9. Check Tidal
+    private String normalizeTidal(String query) {
         Matcher tidalUriMatcher = TIDAL_URI_PATTERN.matcher(query);
         if (tidalUriMatcher.find()) {
             return "tidal:" + tidalUriMatcher.group(1).toLowerCase() + ":" + tidalUriMatcher.group(2);
@@ -270,8 +400,10 @@ public class UrlNormalizer {
         if (tidalUrlMatcher.find()) {
             return "tidal:" + tidalUrlMatcher.group(1).toLowerCase() + ":" + tidalUrlMatcher.group(2);
         }
+        return null;
+    }
 
-        // 10. Check Yandex Music
+    private String normalizeYandexMusic(String query) {
         Matcher yandexTrackMatcher = YANDEX_TRACK_URL_PATTERN.matcher(query);
         if (yandexTrackMatcher.find()) {
             return "yandexmusic:track:" + yandexTrackMatcher.group(1);
@@ -280,77 +412,12 @@ public class UrlNormalizer {
         if (yandexAlbumMatcher.find()) {
             return "yandexmusic:album:" + yandexAlbumMatcher.group(1);
         }
-
-        // 11. Generic HTTP/HTTPS URL -> DO NOT CACHE
-        // Avoid caching live streams, presigned expiring CDN tokens, web radio, etc.
-        if (query.startsWith("http://") || query.startsWith("https://")) {
-            return null;
-        }
-
-        // 12. Check if query is already an established canonical key
-        if (isCacheableKey(query)) {
-            return query;
-        }
-
         return null;
-    }
-
-    private String normalizeYouTubePrefix(String query) {
-        String rest = query.substring("youtube:".length()).trim();
-        String lowerRest = rest.toLowerCase();
-
-        if (lowerRest.startsWith("track:")) {
-            String id = rest.substring("track:".length()).trim();
-            if (YOUTUBE_RAW_ID_PATTERN.matcher(id).matches()) {
-                return "youtube:track:" + id;
-            }
-            return null;
-        }
-
-        if (lowerRest.startsWith("playlist:")) {
-            String listId = rest.substring("playlist:".length()).trim();
-            if (!listId.isEmpty() && !listId.contains("http:") && !listId.contains("https:")) {
-                return "youtube:playlist:" + listId;
-            }
-            return null;
-        }
-
-        if (lowerRest.startsWith("search:")) {
-            String searchStr = rest.substring("search:".length()).trim();
-            if (!searchStr.isEmpty() && !searchStr.startsWith("http://") && !searchStr.startsWith("https://")) {
-                return "youtube:search:" + searchStr;
-            }
-            return null;
-        }
-
-        // Bare 11-char ID after youtube: (e.g. youtube:dQw4w9WgXcQ)
-        if (YOUTUBE_RAW_ID_PATTERN.matcher(rest).matches()) {
-            return "youtube:track:" + rest;
-        }
-
-        // URL after youtube: (e.g. youtube:https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-        if (rest.startsWith("http://") || rest.startsWith("https://")) {
-            return normalizeYouTube(rest);
-        }
-
-        return null;
-    }
-
-    public boolean isYouTubeUrl(String url) {
-        if (url == null || url.trim().isEmpty()) {
-            return false;
-        }
-        String u = url.trim();
-        String lower = u.toLowerCase();
-        if (!lower.contains("youtube") && !lower.contains("youtu.be")) {
-            return false;
-        }
-        return YT_DOMAIN_PATTERN.matcher(u).find() || YOUTU_BE_PATTERN.matcher(u).find();
     }
 
     /**
      * Determines if an identifier/URL is eligible for caching in Redis.
-     * Generic HTTP/HTTPS streams, invalid YouTube URLs, and malformed inputs return false.
+     * Generic HTTP/HTTPS streams, invalid platform URLs, and malformed inputs return false.
      *
      * @param identifier The raw input query or URL
      * @return true if cacheable, false otherwise
@@ -361,7 +428,7 @@ public class UrlNormalizer {
 
     /**
      * Validates whether a normalized canonical key meets strict criteria for caching.
-     * Keys containing "youtube:http", "url:", or starting with "http:" are strictly forbidden.
+     * Keys containing "http:", "https:", "url:", or "://" are strictly forbidden.
      *
      * @param canonicalKey The normalized canonical key
      * @return true if valid and cacheable, false otherwise
@@ -372,86 +439,49 @@ public class UrlNormalizer {
         }
         String lower = canonicalKey.toLowerCase();
 
-        // Strictly reject any HTTP/HTTPS URL based keys or legacy generic url: keys
-        if (lower.startsWith("url:")
-                || lower.startsWith("http:")
-                || lower.startsWith("https:")
-                || lower.startsWith("http://")
-                || lower.startsWith("https://")) {
+        // Reject any key containing HTTP/HTTPS or raw URLs
+        if (lower.contains("http:") || lower.contains("https:") || lower.contains("://") || lower.startsWith("url:")) {
             return false;
         }
 
-        // Strictly reject any key containing youtube:http
-        if (lower.startsWith("youtube:http:")
-                || lower.startsWith("youtube:https:")
-                || lower.startsWith("youtube://")
-                || lower.contains("youtube:http")) {
-            return false;
-        }
-
-        // YouTube canonical keys MUST be track, playlist, or search
         if (lower.startsWith("youtube:")) {
-            return lower.startsWith("youtube:track:")
-                    || lower.startsWith("youtube:playlist:")
-                    || lower.startsWith("youtube:search:");
+            return isValidSubKey(lower, "youtube:", "track:", "playlist:", "search:");
         }
 
         if (lower.startsWith("youtubemusic:")) {
-            return lower.startsWith("youtubemusic:track:")
-                    || lower.startsWith("youtubemusic:playlist:")
-                    || lower.startsWith("youtubemusic:search:");
+            return isValidSubKey(lower, "youtubemusic:", "track:", "playlist:", "search:");
         }
 
         if (lower.startsWith("spotify:")) {
-            return lower.startsWith("spotify:track:")
-                    || lower.startsWith("spotify:playlist:")
-                    || lower.startsWith("spotify:album:")
-                    || lower.startsWith("spotify:artist:")
-                    || lower.startsWith("spotify:search:")
-                    || lower.startsWith("spotify:rec:");
+            return isValidSubKey(lower, "spotify:", "track:", "playlist:", "album:", "artist:", "search:", "rec:");
         }
 
         if (lower.startsWith("soundcloud:")) {
-            return lower.startsWith("soundcloud:track:")
-                    || lower.startsWith("soundcloud:playlist:")
-                    || lower.startsWith("soundcloud:search:");
+            return isValidSubKey(lower, "soundcloud:", "track:", "playlist:", "search:");
         }
 
         if (lower.startsWith("applemusic:")) {
-            return lower.startsWith("applemusic:song:")
-                    || lower.startsWith("applemusic:track:")
-                    || lower.startsWith("applemusic:album:")
-                    || lower.startsWith("applemusic:playlist:")
-                    || lower.startsWith("applemusic:search:");
+            return isValidSubKey(lower, "applemusic:", "song:", "track:", "album:", "playlist:", "search:");
         }
 
         if (lower.startsWith("deezer:")) {
-            return lower.startsWith("deezer:track:")
-                    || lower.startsWith("deezer:album:")
-                    || lower.startsWith("deezer:playlist:")
-                    || lower.startsWith("deezer:search:")
-                    || lower.startsWith("deezer:isrc:");
+            return isValidSubKey(lower, "deezer:", "track:", "album:", "playlist:", "search:", "isrc:");
         }
 
         if (lower.startsWith("amazonmusic:")) {
-            return lower.startsWith("amazonmusic:track:")
-                    || lower.startsWith("amazonmusic:album:")
-                    || lower.startsWith("amazonmusic:playlist:")
-                    || lower.startsWith("amazonmusic:search:");
+            return isValidSubKey(lower, "amazonmusic:", "track:", "album:", "playlist:", "search:");
         }
 
         if (lower.startsWith("tidal:")) {
-            return lower.startsWith("tidal:track:")
-                    || lower.startsWith("tidal:album:")
-                    || lower.startsWith("tidal:playlist:")
-                    || lower.startsWith("tidal:search:");
+            return isValidSubKey(lower, "tidal:", "track:", "album:", "playlist:", "search:");
         }
 
         if (lower.startsWith("yandexmusic:")) {
-            return lower.startsWith("yandexmusic:track:")
-                    || lower.startsWith("yandexmusic:album:")
-                    || lower.startsWith("yandexmusic:playlist:")
-                    || lower.startsWith("yandexmusic:search:");
+            return isValidSubKey(lower, "yandexmusic:", "track:", "album:", "playlist:", "search:");
+        }
+
+        if (lower.startsWith("bilibili:")) {
+            return isValidSubKey(lower, "bilibili:", "video:", "audio:", "search:");
         }
 
         for (String platform : SEARCH_PREFIX_MAP.values()) {
@@ -460,6 +490,16 @@ public class UrlNormalizer {
             }
         }
 
+        return false;
+    }
+
+    private boolean isValidSubKey(String lower, String platformPrefix, String... allowedTypes) {
+        String sub = lower.substring(platformPrefix.length());
+        for (String type : allowedTypes) {
+            if (sub.startsWith(type) && sub.length() > type.length()) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -512,65 +552,6 @@ public class UrlNormalizer {
             return null;
         }
         return p + canonical;
-    }
-
-    private String normalizeYouTube(String url) {
-        if (url == null || url.trim().isEmpty()) {
-            return null;
-        }
-
-        // 1. Detect playlist parameter 'list='
-        Matcher listMatcher = YOUTUBE_LIST_PATTERN.matcher(url);
-        if (listMatcher.find()) {
-            String listId = listMatcher.group(1);
-            return "youtube:playlist:" + listId;
-        }
-
-        // 2. youtu.be shortlinks
-        Matcher youtuBeMatcher = YOUTU_BE_PATTERN.matcher(url);
-        if (youtuBeMatcher.find()) {
-            return "youtube:track:" + youtuBeMatcher.group(1);
-        }
-
-        // 3. YouTube Shorts
-        Matcher shortsMatcher = YOUTUBE_SHORTS_PATTERN.matcher(url);
-        if (shortsMatcher.find()) {
-            return "youtube:track:" + shortsMatcher.group(1);
-        }
-
-        // 4. YouTube Live
-        Matcher liveMatcher = YOUTUBE_LIVE_PATTERN.matcher(url);
-        if (liveMatcher.find()) {
-            return "youtube:track:" + liveMatcher.group(1);
-        }
-
-        // 5. YouTube Embed
-        Matcher embedMatcher = YOUTUBE_EMBED_PATTERN.matcher(url);
-        if (embedMatcher.find()) {
-            return "youtube:track:" + embedMatcher.group(1);
-        }
-
-        // 6. YouTube /v/
-        Matcher vMatcher = YOUTUBE_V_PATTERN.matcher(url);
-        if (vMatcher.find()) {
-            return "youtube:track:" + vMatcher.group(1);
-        }
-
-        // 7. YouTube /watch/ID
-        Matcher watchPathMatcher = YOUTUBE_WATCH_PATH_PATTERN.matcher(url);
-        if (watchPathMatcher.find()) {
-            return "youtube:track:" + watchPathMatcher.group(1);
-        }
-
-        // 8. Standard ?v=ID parameter
-        Matcher videoIdMatcher = YOUTUBE_VIDEO_ID_PARAM.matcher(url);
-        if (videoIdMatcher.find()) {
-            return "youtube:track:" + videoIdMatcher.group(1);
-        }
-
-        // If not a recognized YouTube video ID or playlist ID, DO NOT CACHE
-        // Never return "youtube:" + url
-        return null;
     }
 
     private String stripTrackingAndTrailingSlash(String url) {

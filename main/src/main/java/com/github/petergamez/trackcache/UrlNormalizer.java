@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -142,11 +141,6 @@ public class UrlNormalizer {
             "^mix:(track|album|artist|isrc):\\s*(.+)$",
             Pattern.CASE_INSENSITIVE
     );
-
-    // Tracking query parameter names to remove
-    private static final Set<String> TRACKING_PARAMS = new HashSet<>(Arrays.asList(
-            "si", "ref", "feature", "ab_channel", "fbclid", "igshid", "t", "index", "pp"
-    ));
 
     /**
      * Normalizes the identifier into a canonical key using platform names.

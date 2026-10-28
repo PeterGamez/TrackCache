@@ -472,30 +472,7 @@ public class TrackCacheService implements AutoCloseable {
     }
 
     public long clearAll() {
-        if (!isRedisAvailable()) return 0;
-        try {
-            RedisCommands<String, String> commands = getCommands();
-            if (commands == null) return 0;
-            String pattern = config.getRedis().getKeyPrefix() + "*";
-            ScanCursor cursor = ScanCursor.INITIAL;
-            ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(500);
-            long totalDeleted = 0;
-            do {
-                KeyScanCursor<String> scanResult = commands.scan(cursor, scanArgs);
-                List<String> keys = scanResult.getKeys();
-                if (keys != null && !keys.isEmpty()) {
-                    Long deleted = commands.del(keys.toArray(new String[0]));
-                    if (deleted != null) {
-                        totalDeleted += deleted;
-                    }
-                }
-                cursor = scanResult;
-            } while (!cursor.isFinished());
-            return totalDeleted;
-        } catch (Exception e) {
-            handleRedisError("Error clearing all keys with SCAN", e);
-            return 0;
-        }
+        return clearKeysMatching(config.getRedis().getKeyPrefix() + "*");
     }
 
     public Map<String, Object> getStats() {

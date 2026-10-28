@@ -1,13 +1,26 @@
 package com.github.petergamez.trackcache;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.petergamez.trackcache.config.TrackCacheConfig;
 import com.github.petergamez.trackcache.config.TrackCacheConfigUpdater;
 import com.github.petergamez.trackcache.normalizer.UrlNormalizer;
+import com.github.petergamez.trackcache.redis.RedisConnectionManager;
+import com.github.petergamez.trackcache.util.LoadResultSanitizer;
 import com.github.petergamez.trackcache.util.TrackCacheStats;
+import com.github.petergamez.trackcache.util.TrackDecomposer;
+import io.lettuce.core.RedisFuture;
+import io.lettuce.core.api.async.RedisAsyncCommands;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Proxy;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -262,5 +275,73 @@ class TrackCacheTest {
             trackCache.schedulePurgeInvalidKeys();
             trackCache.schedulePurgeInvalidKeys();
         });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testMaxDecomposedTracksLimit() {
+        TrackCacheConfig config = new TrackCacheConfig();
+        UrlNormalizer normalizer = new UrlNormalizer();
+        AtomicInteger setCalls = new AtomicInteger(0);
+
+        RedisFuture<String> dummyFuture = (RedisFuture<String>) Proxy.newProxyInstance(
+                RedisFuture.class.getClassLoader(),
+                new Class<?>[]{RedisFuture.class},
+                (proxy, method, args) -> {
+                    if ("get".equals(method.getName())) return "OK";
+                    if ("isDone".equals(method.getName())) return true;
+                    if ("isCancelled".equals(method.getName())) return false;
+                    return null;
+                }
+        );
+
+        RedisAsyncCommands<String, String> mockAsync = (RedisAsyncCommands<String, String>) Proxy.newProxyInstance(
+                RedisAsyncCommands.class.getClassLoader(),
+                new Class<?>[]{RedisAsyncCommands.class},
+                (proxy, method, args) -> {
+                    if ("setex".equals(method.getName()) || "set".equals(method.getName())) {
+                        setCalls.incrementAndGet();
+                        return dummyFuture;
+                    }
+                    return null;
+                }
+        );
+
+        RedisConnectionManager mockConnManager = new RedisConnectionManager(config, null, null) {
+            @Override
+            public RedisAsyncCommands<String, String> getAsyncCommands(ExecutorService reconnectExecutor) {
+                return mockAsync;
+            }
+        };
+
+        TrackDecomposer decomposer = new TrackDecomposer(
+                config, normalizer, objectMapper,
+                new LoadResultSanitizer(objectMapper, normalizer),
+                mockConnManager, new TrackCacheStats()
+        );
+
+        // Create 600 unique, valid tracks
+        List<JsonNode> tracks = new ArrayList<>();
+        for (int i = 0; i < 600; i++) {
+            ObjectNode t = objectMapper.createObjectNode();
+            t.put("encoded", "ENC_" + i);
+            ObjectNode info = t.putObject("info");
+            info.put("identifier", "track_" + i);
+            info.put("uri", "https://open.spotify.com/track/" + String.format("%022d", i));
+            info.put("sourceName", "spotify");
+            info.put("isStream", false);
+            tracks.add(t);
+        }
+
+        // Decompose 600 tracks
+        ExecutorService directExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            decomposer.decomposeAndCacheTrackNodes(tracks, Duration.ofHours(1), "test-playlist", directExecutor);
+        } finally {
+            directExecutor.shutdown();
+        }
+
+        assertEquals(TrackDecomposer.MAX_DECOMPOSED_TRACKS_PER_CONTAINER, setCalls.get(),
+                "Must not decompose more than the maximum cap of tracks per container");
     }
 }

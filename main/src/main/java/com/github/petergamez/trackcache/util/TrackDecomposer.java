@@ -29,6 +29,12 @@ public class TrackDecomposer {
 
     private static final Logger log = LoggerFactory.getLogger(TrackDecomposer.class);
 
+    /**
+     * Maximum number of individual tracks to decompose and pre-warm per playlist/search container.
+     * Prevents memory spikes and worker thread saturation on massive playlists (e.g. 1,000 - 10,000 tracks).
+     */
+    public static final int MAX_DECOMPOSED_TRACKS_PER_CONTAINER = 500;
+
     private final TrackCacheConfig config;
     private final UrlNormalizer normalizer;
     private final ObjectMapper objectMapper;
@@ -65,6 +71,11 @@ public class TrackDecomposer {
             String keyPrefix = config.getRedis().getKeyPrefix();
 
             for (JsonNode trackNode : tracksNode) {
+                if (futures.size() >= MAX_DECOMPOSED_TRACKS_PER_CONTAINER) {
+                    log.debug("Reached maximum decomposition limit of {} tracks for {}.", MAX_DECOMPOSED_TRACKS_PER_CONTAINER, source);
+                    break;
+                }
+
                 if (!sanitizer.isTrackNodeCacheable(trackNode)) {
                     continue;
                 }

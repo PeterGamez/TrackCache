@@ -10,6 +10,7 @@ base {
 
 lavalinkPlugin {
     name = "trackcache-plugin"
+    path = "com.github.petergamez.trackcache"
     apiVersion = "4.0.8"
     serverVersion = "4.0.8"
     configurePublishing = false

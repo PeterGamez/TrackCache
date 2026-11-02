@@ -22,7 +22,10 @@ tasks.jar {
 }
 
 dependencies {
-    api("io.lettuce:lettuce-core:6.3.2.RELEASE")
+    api("io.lettuce:lettuce-core:6.3.2.RELEASE") {
+        exclude(group = "io.netty")
+    }
+    compileOnly("io.netty:netty-all:4.1.107.Final")
     compileOnly("org.springframework.boot:spring-boot:3.3.0")
     compileOnly("com.fasterxml.jackson.core:jackson-databind:2.16.1")
     compileOnly("org.slf4j:slf4j-api:2.0.12")
@@ -30,6 +33,7 @@ dependencies {
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testRuntimeOnly("io.netty:netty-all:4.1.107.Final")
     testImplementation("com.fasterxml.jackson.core:jackson-databind:2.16.1")
     testImplementation("org.slf4j:slf4j-simple:2.0.12")
 }

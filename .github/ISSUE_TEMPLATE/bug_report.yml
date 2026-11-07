@@ -1,0 +1,146 @@
+name: Bug Report
+description: Report an unexpected behavior or bug in TrackCache
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide as much information as possible to help reproduce and fix the bug quickly.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the bug.
+      placeholder: Explain what happened...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the issue.
+      value: |
+        1. Configure TrackCache in `application.yml` with ...
+        2. Query track / playlist via `/v4/loadtracks` with query `...`
+        3. See error / unexpected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+      placeholder: Expected the track to be cached and returned from Redis...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: java-version
+    attributes:
+      label: Java Version
+      description: Which Java runtime are you using?
+      options:
+        - Java 17 (Recommended)
+        - Java 21
+        - Java 22+
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: lavalink-version
+    attributes:
+      label: Lavalink Server Version
+      description: The version of Lavalink server you are running.
+      placeholder: "4.0.8"
+    validations:
+      required: true
+
+  - type: input
+    id: trackcache-version
+    attributes:
+      label: TrackCache Version / Commit
+      description: The version or Git commit of TrackCache plugin you are using.
+      placeholder: "v1.0.0 or commit hash"
+    validations:
+      required: true
+
+  - type: input
+    id: redis-version
+    attributes:
+      label: Redis Server / Engine
+      description: Your Redis environment (e.g., Redis 7.2 Docker, Valkey, Dragonfly, Redis Cloud).
+      placeholder: "Redis 7.2 (Docker)"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: audio-source
+    attributes:
+      label: Audio Source / Provider Involved
+      description: Which audio source or resolver was being queried?
+      options:
+        - YouTube (Track / Playlist / Search)
+        - Spotify (Track / Playlist / Search)
+        - SoundCloud (Track / Playlist / Search)
+        - Deezer
+        - JioSaavn
+        - Flowery TTS
+        - General Redis Cache Engine / Connection
+        - Other (specify in description)
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant Configuration (application.yml)
+      description: |
+        Your `plugins.trackcache` configuration section from `application.yml`.
+        ⚠️ DO NOT include passwords, auth tokens, or sensitive credentials!
+      render: yaml
+      placeholder: |
+        plugins:
+          trackcache:
+            enabled: true
+            redis:
+              host: "localhost"
+              port: 6379
+              password: "***"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs & Stack Traces
+      description: Relevant logs or stack traces when the issue occurred.
+      render: shell
+      placeholder: Paste your logs here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other context, client library used (discord.js, JDA, lavalink-client, etc.), or screenshots.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I have searched existing GitHub issues and confirmed this is not a duplicate.
+          required: true
+        - label: I have tested with the latest release of TrackCache and Lavalink.
+          required: true
+        - label: I have removed all sensitive credentials (passwords, tokens) from config and logs.
+          required: true
+

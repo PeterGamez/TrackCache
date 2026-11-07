@@ -1,0 +1,55 @@
+name: Feature Request
+description: Suggest a new idea, optimization, or enhancement for TrackCache
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an enhancement to TrackCache! Please provide clear details on what you would like to see added or improved.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Motivation
+      description: Is your feature request related to a problem or limitation?
+      placeholder: "A clear and concise description of the limitation or use-case..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see implemented.
+      placeholder: "A clear and concise description of how this should work..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions, workarounds, or features you've considered.
+      placeholder: "I tried doing X by..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, diagrams, links, or mockups here.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I have verified that this feature request has not been submitted previously.
+          required: true
+        - label: I am willing to contribute and submit a Pull Request for this feature.
+          required: false
+

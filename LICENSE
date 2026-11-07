@@ -1,0 +1,26 @@
+TrackCache Custom License
+Copyright (c) 2026 PeterGamez (https://github.com/PeterGamez/TrackCache)
+All Rights Reserved.
+
+By downloading, viewing, running, or interacting with this software and its source code, you agree to be bound by the following terms and conditions:
+
+1. PERMITTED USAGE
+   You are granted permission to download, view, and run this software for personal, non-commercial use in connection with Lavalink server instances.
+
+2. FORKING, MODIFICATIONS & PERSONAL USE (MANDATORY FORK ATTRIBUTION)
+   You are permitted to fork this repository on GitHub and modify the source code for your own personal use, or to submit Pull Requests back to the upstream repository, provided that:
+   a. Any copy hosted on GitHub must remain an active, directly linked fork of the upstream repository (showing "forked from PeterGamez/TrackCache") at all times.
+   b. You may NOT detach the fork, re-upload the repository as an independent standalone project, or strip/obscure the upstream attribution, author copyright notices, and license terms.
+   c. Contributions back to the upstream repository via Pull Requests are encouraged.
+
+3. PROHIBITION OF REDISTRIBUTION & SEPARATE HOSTING (NO REDISTRIBUTION)
+   Except for GitHub forks maintaining the unbroken upstream link specified in Section 2, you may NOT redistribute, republish, mirror, re-host, sublicense, transfer, or share copies of this software (whether in source code, compiled jar, or binary forms) on any third-party website, package repository, bot hosting platform, or alternative distribution channel.
+
+4. PROHIBITION OF COMMERCIAL USE (NO SALE / COMMERCIAL USE)
+   You may NOT sell, rent, lease, charge fees for, monetize, or bundle this software, its source code, or its compiled binaries into any commercial product or paid service. Any commercial exploitation is strictly prohibited without prior written agreement from the copyright holder.
+
+5. RESERVATION OF RIGHTS
+   All rights not expressly granted in this license are reserved exclusively by the copyright holder.
+
+6. DISCLAIMER OF WARRANTY & LIMITATION OF LIABILITY
+   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

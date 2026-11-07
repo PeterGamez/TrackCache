@@ -311,3 +311,14 @@ Update TTL and Cache configuration at runtime without restarting Lavalink.
   ```
 
 ---
+
+
+## 📄 License
+
+This project is licensed under a **Custom License**:
+- ✅ **Personal / Internal Use:** Free to run and use with Lavalink.
+- 🍴 **Forking & Personal Modifications:** Permitted to fork and modify for personal use or PR contributions, provided the repository **remains an active, directly linked fork** (`forked from PeterGamez/TrackCache`) on GitHub at all times. Detaching or re-uploading as a standalone repository is strictly prohibited.
+- 🚫 **No Commercial Use:** Selling, renting, or monetizing the software/code is strictly forbidden.
+- 🚫 **No Redistribution:** Re-hosting, mirroring, or distributing binaries/code outside of official directly linked forks is not permitted.
+
+For full terms and conditions, please see the [LICENSE](LICENSE) file.

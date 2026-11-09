@@ -18,6 +18,8 @@ import java.util.Map;
 @Component
 public class LoadResultSanitizer {
 
+    private static final int MAX_JSON_RECURSION_DEPTH = 32;
+
     private final ObjectMapper objectMapper;
     private final UrlNormalizer normalizer;
 
@@ -165,7 +167,7 @@ public class LoadResultSanitizer {
         if (!parent.has(fieldName) || parent.get(fieldName).isNull()) {
             parent.set(fieldName, objectMapper.createObjectNode());
         } else {
-            parent.set(fieldName, sanitizeKotlinJsonElement(parent.get(fieldName)));
+            parent.set(fieldName, sanitizeKotlinJsonElement(parent.get(fieldName), 0));
         }
     }
 
@@ -173,9 +175,12 @@ public class LoadResultSanitizer {
      * Unwraps kotlinx.serialization.json.JsonPrimitive objects that were serialized via Jackson
      * reflection as {"string": boolean, "content": "..."} back into native JSON primitives.
      */
-    private JsonNode sanitizeKotlinJsonElement(JsonNode node) {
+    private JsonNode sanitizeKotlinJsonElement(JsonNode node, int depth) {
         if (node == null || node.isNull()) {
             return objectMapper.nullNode();
+        }
+        if (depth > MAX_JSON_RECURSION_DEPTH) {
+            return node;
         }
         if (node instanceof ObjectNode obj) {
             if (obj.size() == 2 && obj.has("string") && obj.has("content")
@@ -208,14 +213,14 @@ public class LoadResultSanitizer {
             Iterator<Map.Entry<String, JsonNode>> fields = obj.fields();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> entry = fields.next();
-                cleaned.set(entry.getKey(), sanitizeKotlinJsonElement(entry.getValue()));
+                cleaned.set(entry.getKey(), sanitizeKotlinJsonElement(entry.getValue(), depth + 1));
             }
             return cleaned;
         }
         if (node instanceof ArrayNode arr) {
             ArrayNode cleaned = objectMapper.createArrayNode();
             for (JsonNode elem : arr) {
-                cleaned.add(sanitizeKotlinJsonElement(elem));
+                cleaned.add(sanitizeKotlinJsonElement(elem, depth + 1));
             }
             return cleaned;
         }

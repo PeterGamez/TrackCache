@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 public class AmazonMusicNormalizer implements PlatformNormalizer {
 
     private static final Pattern AMAZON_MUSIC_URL_PATTERN = Pattern.compile(
-            "^(?:https?://)?(?:music|www)\\.amazon\\.[a-z.]+(?:/[a-z]{2})?/(albums|tracks|playlists)/([a-zA-Z0-9]+)",
+            "^(?:https?://)?(?:music|www)\\.amazon\\.(?:com(?:\\.(?:au|br|mx))?|co\\.(?:uk|jp)|[a-z]{2,3})(?:/[a-z]{2})?/(albums|tracks|playlists)/([a-zA-Z0-9]+)(?:[/?#]|$)",
             Pattern.CASE_INSENSITIVE
     );
 

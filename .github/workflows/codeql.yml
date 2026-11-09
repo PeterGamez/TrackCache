@@ -17,17 +17,12 @@ on:
     paths:
       - 'main/**'
       - 'plugin/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'main/**'
       - 'plugin/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle/**'
+  workflow_dispatch:
 
 jobs:
   analyze:

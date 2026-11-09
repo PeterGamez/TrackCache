@@ -56,6 +56,12 @@ public class TrackCacheResponseBodyAdvice implements ResponseBodyAdvice<Object> 
                 // Remove attribute immediately so error/async dispatches cannot re-trigger caching
                 httpRequest.removeAttribute(TrackCacheRestInterceptor.CACHE_IDENTIFIER_ATTR);
 
+                String[] paramValues = httpRequest.getParameterValues("identifier");
+                if (paramValues == null || paramValues.length != 1 || !identifier.equals(paramValues[0])) {
+                    log.debug("Skipping caching response due to duplicate or mismatched identifier parameters");
+                    return body;
+                }
+
                 if (response instanceof ServletServerHttpResponse servletResponse) {
                     int status = servletResponse.getServletResponse().getStatus();
                     if (status != HttpServletResponse.SC_OK) {

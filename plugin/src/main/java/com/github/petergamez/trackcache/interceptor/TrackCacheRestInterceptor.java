@@ -32,7 +32,7 @@ public class TrackCacheRestInterceptor implements RestInterceptor, Ordered {
     @Autowired
     public TrackCacheRestInterceptor(TrackCache trackCache,
                                      CachedResultLogger resultLogger,
-                                     @Value("${lavalink.server.password:}") String serverPassword) {
+                                     @Value("${lavalink.server.password:${server.password:}}") String serverPassword) {
         this.trackCache = trackCache;
         this.resultLogger = resultLogger;
         this.serverPassword = serverPassword != null ? serverPassword.trim() : "";
@@ -64,20 +64,29 @@ public class TrackCacheRestInterceptor implements RestInterceptor, Ordered {
 
         // Never short-circuit unauthenticated requests before Lavalink's authorization filter
         String authHeader = request.getHeader("Authorization");
-        if (authHeader == null || authHeader.isEmpty()) {
+        if (authHeader == null || authHeader.trim().isEmpty()) {
             return true;
         }
 
-        // Defense-in-depth: If Lavalink server password is configured, verify constant-time match
-        if (!serverPassword.isEmpty()) {
-            if (!MessageDigest.isEqual(
-                    serverPassword.getBytes(StandardCharsets.UTF_8),
-                    authHeader.trim().getBytes(StandardCharsets.UTF_8))) {
-                return true; // Let Lavalink's RequestAuthorizationFilter reject with 403 Forbidden
-            }
+        // If server password is not configured or resolved, we cannot safely short-circuit;
+        // pass downstream so Lavalink handles authentication natively.
+        if (serverPassword.isEmpty()) {
+            log.debug("Server password unconfigured in TrackCacheRestInterceptor; passing request downstream to Lavalink");
+            return true;
         }
 
-        String identifier = request.getParameter("identifier");
+        // Constant-time check against configured server password
+        if (!MessageDigest.isEqual(
+                serverPassword.getBytes(StandardCharsets.UTF_8),
+                authHeader.trim().getBytes(StandardCharsets.UTF_8))) {
+            return true; // Let Lavalink's RequestAuthorizationFilter reject with 403 Forbidden
+        }
+
+        String[] identifiers = request.getParameterValues("identifier");
+        if (identifiers == null || identifiers.length != 1) {
+            return true;
+        }
+        String identifier = identifiers[0];
         if (identifier == null || identifier.trim().isEmpty() || !trackCache.isCacheable(identifier)) {
             return true;
         }

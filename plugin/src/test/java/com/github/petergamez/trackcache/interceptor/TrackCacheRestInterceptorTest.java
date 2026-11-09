@@ -108,6 +108,48 @@ class TrackCacheRestInterceptorTest {
     }
 
     @Test
+    void testPreHandleFallsThroughWhenServerPasswordEmpty() throws Exception {
+        String mockCachedJson = "{\"loadType\":\"track\",\"data\":{\"info\":{\"title\":\"Test\"}}}";
+        TrackCache hitCache = new TrackCache(config, normalizer, objectMapper, null) {
+            @Override
+            public String getCachedResult(String identifier) {
+                return mockCachedJson;
+            }
+        };
+
+        TrackCacheRestInterceptor interceptor = new TrackCacheRestInterceptor(
+                hitCache, new CachedResultLogger(objectMapper), "");
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/v4/loadtracks");
+        request.addParameter("identifier", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        request.addHeader("Authorization", "dummy_token");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        boolean result = interceptor.preHandle(request, response, new Object());
+        assertTrue(result); // Must pass downstream to Lavalink because password is not configured
+        assertNull(response.getHeader("X-TrackCache-Status"));
+    }
+
+    @Test
+    void testPreHandleRejectsDuplicateIdentifierParameterPollution() throws Exception {
+        TrackCacheRestInterceptor interceptor = new TrackCacheRestInterceptor(
+                trackCache, new CachedResultLogger(objectMapper), "correct_password");
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/v4/loadtracks");
+        request.addParameter("identifier", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        request.addParameter("identifier", "https://www.youtube.com/watch?v=anotherVideo");
+        request.addHeader("Authorization", "correct_password");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        boolean result = interceptor.preHandle(request, response, new Object());
+        assertTrue(result); // Must pass downstream to Lavalink without serving cache
+        assertNull(response.getHeader("X-TrackCache-Status"));
+        assertNull(request.getAttribute(TrackCacheRestInterceptor.CACHE_IDENTIFIER_ATTR));
+    }
+
+    @Test
     void testPreHandleIgnoresNonLoadtracksEndpoints() throws Exception {
         TrackCacheRestInterceptor interceptor = new TrackCacheRestInterceptor(
                 trackCache, new CachedResultLogger(objectMapper), "correct_password");

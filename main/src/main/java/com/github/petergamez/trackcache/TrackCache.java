@@ -301,7 +301,6 @@ public class TrackCache implements AutoCloseable {
                 }
                 connectionManager.markHealthy();
                 stats.recordPut();
-                stats.invalidateKeyCount();
 
                 String ttlDisplay = ttl != null
                         ? (ttl.toHours() > 0 ? ttl.toHours() + "h" : ttl.toMinutes() + "m")

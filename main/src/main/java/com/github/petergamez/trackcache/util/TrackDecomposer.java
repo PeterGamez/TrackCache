@@ -119,7 +119,6 @@ public class TrackDecomposer {
                 if (completed) {
                     connectionManager.markHealthy();
                     stats.recordPuts(futures.size());
-                    stats.invalidateKeyCount();
                     log.debug("Pipelined and cached {} individual tracks from {}.", futures.size(), source);
                 } else {
                     log.warn("Timed out waiting for all decomposed track writes from {}.", source);

@@ -17,8 +17,6 @@ on:
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle/**'
-  schedule:
-    - cron: '0 0 * * 1' # Runs every Monday at 00:00 UTC
 
 jobs:
   analyze:
@@ -65,3 +63,4 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+

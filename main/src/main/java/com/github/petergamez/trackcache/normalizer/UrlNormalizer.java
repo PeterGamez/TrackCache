@@ -90,6 +90,8 @@ public class UrlNormalizer {
         this(createDefaultPlatformNormalizers());
     }
 
+    private static final int MAX_NORMALIZATION_DEPTH = 5;
+
     /**
      * Normalizes the identifier into a canonical key using platform names.
      * Returns null if the identifier is not cacheable (e.g. generic HTTP/HTTPS, invalid platform URL, etc.).
@@ -98,7 +100,11 @@ public class UrlNormalizer {
      * @return Canonical key representation, or null if uncacheable
      */
     public String normalize(String identifier) {
-        if (identifier == null || identifier.trim().isEmpty()) {
+        return normalize(identifier, 0);
+    }
+
+    private String normalize(String identifier, int depth) {
+        if (depth > MAX_NORMALIZATION_DEPTH || identifier == null || identifier.trim().isEmpty()) {
             return null;
         }
 
@@ -121,7 +127,7 @@ public class UrlNormalizer {
 
                 // If rest is an HTTP/HTTPS URL, unwrap and normalize
                 if (rest.startsWith("http://") || rest.startsWith("https://")) {
-                    return normalize(rest);
+                    return normalize(rest, depth + 1);
                 }
 
                 // Standard search prefix mapping
@@ -139,7 +145,7 @@ public class UrlNormalizer {
                 }
 
                 // Client prefix fallback (e.g. youtube:dQw4w9WgXcQ, bilibili:BV1xx411c7mD)
-                String normalizedRest = normalize(rest);
+                String normalizedRest = normalize(rest, depth + 1);
                 if (normalizedRest != null) {
                     return normalizedRest;
                 }

@@ -60,7 +60,7 @@ public class UrlNormalizer {
         PLATFORM_SUBKEYS.put("bilibili", new String[]{"video:", "audio:", "search:"});
     }
 
-    private static final Pattern GENERIC_SEARCH_PREFIX_PATTERN = Pattern.compile("^([a-zA-Z0-9_]+):\\s*(.*)$");
+    private static final Pattern GENERIC_SEARCH_PREFIX_PATTERN = Pattern.compile("^([a-zA-Z0-9_]+):(.*)$");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
     private final List<PlatformNormalizer> platformNormalizers;

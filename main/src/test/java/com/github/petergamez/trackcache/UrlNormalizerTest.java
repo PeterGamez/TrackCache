@@ -296,4 +296,14 @@ class UrlNormalizerTest {
         assertNull(normalizer.toFullCacheKey("trackcache:youtube:http://example.com", prefix));
         assertNull(normalizer.toFullCacheKey("trackcache:url:http://example.com", prefix));
     }
+
+    @Test
+    void testReDoSResilience() {
+        // String starting with prefix and large sequence of spaces
+        String attackString = "0:" + " ".repeat(10000);
+        assertNull(normalizer.normalize(attackString));
+
+        String validSearchWithSpaces = "ytsearch:" + " ".repeat(1000) + "hello world";
+        assertEquals("youtube:search:hello world", normalizer.normalize(validSearchWithSpaces));
+    }
 }

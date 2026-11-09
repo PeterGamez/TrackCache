@@ -13,6 +13,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -35,6 +36,11 @@ public class RedisConnectionManager implements AutoCloseable {
     private volatile boolean healthy;
     private final AtomicLong lastErrorTime = new AtomicLong(0);
     private final AtomicBoolean reconnectInProgress = new AtomicBoolean(false);
+    private final ExecutorService internalReconnectExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "trackcache-redis-reconnector");
+        t.setDaemon(true);
+        return t;
+    });
     private volatile Runnable onConnectedCallback;
 
     @Autowired
@@ -97,15 +103,16 @@ public class RedisConnectionManager implements AutoCloseable {
         return (now - lastErr > HEALTH_CHECK_COOLDOWN_MS) && lastErrorTime.compareAndSet(lastErr, now);
     }
 
-    private void triggerAsyncReconnectIfReady(ExecutorService reconnectExecutor) {
+    private void triggerAsyncReconnectIfReady(ExecutorService fallbackExecutor) {
         long now = System.currentTimeMillis();
         long lastErr = lastErrorTime.get();
         if (now - lastErr > HEALTH_CHECK_COOLDOWN_MS && reconnectInProgress.compareAndSet(false, true)) {
             lastErrorTime.set(now);
             try {
-                reconnectExecutor.submit(this::reconnectInBackground);
+                internalReconnectExecutor.submit(this::reconnectInBackground);
             } catch (Exception e) {
                 reconnectInProgress.set(false);
+                log.warn("Failed to schedule Redis background reconnection: {}", e.getMessage());
             }
         }
     }
@@ -121,10 +128,20 @@ public class RedisConnectionManager implements AutoCloseable {
                     return;
                 }
                 StatefulRedisConnection<String, String> newConn = this.redisClient.connect();
+                StatefulRedisConnection<String, String> oldConn = this.connection;
                 this.connection = newConn;
                 this.syncCommands = newConn.sync();
                 this.asyncCommands = newConn.async();
                 markHealthy();
+
+                if (oldConn != null) {
+                    try {
+                        oldConn.closeAsync();
+                    } catch (Exception e) {
+                        log.debug("Error closing replaced Redis connection: {}", e.getMessage());
+                    }
+                }
+
                 Runnable callback = this.onConnectedCallback;
                 if (callback != null) {
                     callback.run();
@@ -155,6 +172,10 @@ public class RedisConnectionManager implements AutoCloseable {
 
     @Override
     public void close() {
+        try {
+            internalReconnectExecutor.shutdownNow();
+        } catch (Exception ignored) {
+        }
         syncCommands = null;
         asyncCommands = null;
         StatefulRedisConnection<String, String> conn = this.connection;

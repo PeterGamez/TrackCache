@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 
 /**
  * Handles Redis key maintenance, evictions, scan purges, and key counting.
@@ -38,7 +37,7 @@ public class TrackCacheCleaner {
         this.stats = stats;
     }
 
-    public long deleteKeys(RedisCommands<String, String> commands, String... keys) {
+    private long deleteKeys(RedisCommands<String, String> commands, String... keys) {
         if (keys == null || keys.length == 0) {
             return 0;
         }
@@ -52,10 +51,10 @@ public class TrackCacheCleaner {
         return deleted != null ? deleted : 0;
     }
 
-    public boolean evict(String identifier, ExecutorService executor) {
+    public boolean evict(String identifier) {
         if (identifier == null || identifier.trim().isEmpty()) return false;
         try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(executor);
+            RedisCommands<String, String> commands = connectionManager.getSyncCommands();
             if (commands == null) return false;
             String prefix = config.getRedis().getKeyPrefix();
             String trimmed = identifier.trim();
@@ -75,9 +74,9 @@ public class TrackCacheCleaner {
         }
     }
 
-    public long clearKeysMatching(String pattern, ExecutorService executor) {
+    private long clearKeysMatching(String pattern) {
         try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(executor);
+            RedisCommands<String, String> commands = connectionManager.getSyncCommands();
             if (commands == null) return 0;
             ScanCursor cursor = ScanCursor.INITIAL;
             ScanArgs scanArgs = ScanArgs.Builder.matches(pattern).limit(500);
@@ -98,9 +97,9 @@ public class TrackCacheCleaner {
         }
     }
 
-    public long purgeInvalidKeys(ExecutorService executor) {
+    public long purgeInvalidKeys() {
         try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(executor);
+            RedisCommands<String, String> commands = connectionManager.getSyncCommands();
             if (commands == null) return 0;
 
             String prefix = config.getRedis().getKeyPrefix();
@@ -143,12 +142,12 @@ public class TrackCacheCleaner {
         }
     }
 
-    public long clearAll(ExecutorService executor) {
-        return clearKeysMatching(config.getRedis().getKeyPrefix() + "*", executor);
+    public long clearAll() {
+        return clearKeysMatching(config.getRedis().getKeyPrefix() + "*");
     }
 
-    public long scanKeyCount(String pattern, ExecutorService executor) {
-        RedisCommands<String, String> commands = connectionManager.getSyncCommands(executor);
+    public long scanKeyCount(String pattern) {
+        RedisCommands<String, String> commands = connectionManager.getSyncCommands();
         if (commands == null) {
             return -1;
         }
@@ -164,4 +163,3 @@ public class TrackCacheCleaner {
         return totalKeys;
     }
 }
-

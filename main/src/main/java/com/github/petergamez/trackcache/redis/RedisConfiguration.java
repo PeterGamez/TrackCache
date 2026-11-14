@@ -51,7 +51,7 @@ public class RedisConfiguration {
         }
     }
 
-    public static RedisClient createRedisClient(TrackCacheConfig config) {
+    private static RedisClient createRedisClient(TrackCacheConfig config) {
         TrackCacheConfig.RedisConfig redis = config.getRedis();
         String host = redis.getHost() != null && !redis.getHost().trim().isEmpty()
                 ? redis.getHost().trim()

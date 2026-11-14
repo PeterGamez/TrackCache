@@ -67,7 +67,7 @@ public class RedisConnectionManager implements AutoCloseable {
         }
     }
 
-    public boolean isOpen() {
+    private boolean isOpen() {
         StatefulRedisConnection<String, String> conn = this.connection;
         return conn != null && conn.isOpen();
     }
@@ -76,23 +76,23 @@ public class RedisConnectionManager implements AutoCloseable {
         return healthy && isOpen();
     }
 
-    public RedisCommands<String, String> getSyncCommands(ExecutorService reconnectExecutor) {
-        return isReady(reconnectExecutor) ? this.syncCommands : null;
+    public RedisCommands<String, String> getSyncCommands() {
+        return isReady() ? this.syncCommands : null;
     }
 
-    public RedisAsyncCommands<String, String> getAsyncCommands(ExecutorService reconnectExecutor) {
-        return isReady(reconnectExecutor) ? this.asyncCommands : null;
+    public RedisAsyncCommands<String, String> getAsyncCommands() {
+        return isReady() ? this.asyncCommands : null;
     }
 
-    private boolean isReady(ExecutorService reconnectExecutor) {
+    private boolean isReady() {
         if (!config.isEnabled()) {
             return false;
         }
         if (isOpen() && this.syncCommands != null && this.asyncCommands != null) {
             return healthy || allowHealthProbe();
         }
-        if (redisClient != null && reconnectExecutor != null) {
-            triggerAsyncReconnectIfReady(reconnectExecutor);
+        if (redisClient != null) {
+            triggerAsyncReconnectIfReady();
         }
         return false;
     }
@@ -103,7 +103,7 @@ public class RedisConnectionManager implements AutoCloseable {
         return (now - lastErr > HEALTH_CHECK_COOLDOWN_MS) && lastErrorTime.compareAndSet(lastErr, now);
     }
 
-    private void triggerAsyncReconnectIfReady(ExecutorService fallbackExecutor) {
+    private void triggerAsyncReconnectIfReady() {
         long now = System.currentTimeMillis();
         long lastErr = lastErrorTime.get();
         if (now - lastErr > HEALTH_CHECK_COOLDOWN_MS && reconnectInProgress.compareAndSet(false, true)) {

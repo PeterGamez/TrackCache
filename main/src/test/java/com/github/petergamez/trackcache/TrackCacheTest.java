@@ -309,7 +309,7 @@ class TrackCacheTest {
 
         RedisConnectionManager mockConnManager = new RedisConnectionManager(config, null, null) {
             @Override
-            public RedisAsyncCommands<String, String> getAsyncCommands(ExecutorService reconnectExecutor) {
+            public RedisAsyncCommands<String, String> getAsyncCommands() {
                 return mockAsync;
             }
         };
@@ -334,12 +334,7 @@ class TrackCacheTest {
         }
 
         // Decompose 600 tracks
-        ExecutorService directExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
-        try {
-            decomposer.decomposeAndCacheTrackNodes(tracks, Duration.ofHours(1), "test-playlist", directExecutor);
-        } finally {
-            directExecutor.shutdown();
-        }
+        decomposer.decomposeAndCacheTrackNodes(tracks, Duration.ofHours(1), "test-playlist");
 
         assertEquals(TrackDecomposer.MAX_DECOMPOSED_TRACKS_PER_CONTAINER, setCalls.get(),
                 "Must not decompose more than the maximum cap of tracks per container");

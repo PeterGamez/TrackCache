@@ -19,7 +19,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
 
 /**
  * Handles decomposing playlist and search result payloads into individual cached track items (cache pre-warming).
@@ -58,10 +57,9 @@ public class TrackDecomposer {
 
     public void decomposeAndCacheTrackNodes(Iterable<JsonNode> tracksNode,
                                            Duration ttl,
-                                           String source,
-                                           ExecutorService executor) {
+                                           String source) {
         try {
-            RedisAsyncCommands<String, String> async = connectionManager.getAsyncCommands(executor);
+            RedisAsyncCommands<String, String> async = connectionManager.getAsyncCommands();
             if (async == null) {
                 return;
             }

@@ -12,7 +12,6 @@ import com.github.petergamez.trackcache.util.LoadResultSanitizer;
 import com.github.petergamez.trackcache.util.TrackCacheStats;
 import com.github.petergamez.trackcache.util.TrackDecomposer;
 import io.lettuce.core.RedisClient;
-import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -92,9 +91,18 @@ public class TrackCache implements AutoCloseable {
     public TrackCache(TrackCacheConfig config,
                       UrlNormalizer normalizer,
                       ObjectMapper objectMapper,
-                      LoadResultSanitizer sanitizer,
-                      RedisConnectionManager connectionManager,
-                      TrackCacheStats stats) {
+                      @Nullable RedisClient redisClient) {
+        this(config, normalizer, objectMapper, new TrackCacheStats(),
+                new LoadResultSanitizer(objectMapper, normalizer),
+                new RedisConnectionManager(config, redisClient, null));
+    }
+
+    private TrackCache(TrackCacheConfig config,
+                       UrlNormalizer normalizer,
+                       ObjectMapper objectMapper,
+                       TrackCacheStats stats,
+                       LoadResultSanitizer sanitizer,
+                       RedisConnectionManager connectionManager) {
         this(
                 config,
                 normalizer,
@@ -105,35 +113,6 @@ public class TrackCache implements AutoCloseable {
                 new TrackDecomposer(config, normalizer, objectMapper, sanitizer, connectionManager, stats),
                 new TrackCacheCleaner(config, normalizer, connectionManager, stats)
         );
-    }
-
-    public TrackCache(TrackCacheConfig config,
-                      UrlNormalizer normalizer,
-                      ObjectMapper objectMapper,
-                      LoadResultSanitizer sanitizer,
-                      RedisConnectionManager connectionManager) {
-        this(config, normalizer, objectMapper, sanitizer, connectionManager, new TrackCacheStats());
-    }
-
-    public TrackCache(TrackCacheConfig config,
-                      UrlNormalizer normalizer,
-                      ObjectMapper objectMapper,
-                      @Nullable RedisClient redisClient,
-                      @Nullable StatefulRedisConnection<String, String> connection) {
-        this(
-                config,
-                normalizer,
-                objectMapper,
-                new LoadResultSanitizer(objectMapper, normalizer),
-                new RedisConnectionManager(config, redisClient, connection)
-        );
-    }
-
-    public TrackCache(TrackCacheConfig config,
-                      UrlNormalizer normalizer,
-                      ObjectMapper objectMapper,
-                      @Nullable RedisClient redisClient) {
-        this(config, normalizer, objectMapper, redisClient, null);
     }
 
     public boolean isEnabled() {
@@ -163,7 +142,7 @@ public class TrackCache implements AutoCloseable {
         }
 
         try {
-            RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
+            RedisCommands<String, String> commands = connectionManager.getSyncCommands();
             if (commands == null) {
                 if (recordStats) {
                     stats.recordMiss();
@@ -202,7 +181,7 @@ public class TrackCache implements AutoCloseable {
         }
 
         String fullKey = normalizer.toFullCacheKey(identifier, config.getRedis().getKeyPrefix());
-        if (fullKey == null || (connectionManager.getAsyncCommands(cacheExecutor) == null && !connectionManager.isHealthy())) {
+        if (fullKey == null || (connectionManager.getAsyncCommands() == null && !connectionManager.isHealthy())) {
             return;
         }
 
@@ -286,7 +265,7 @@ public class TrackCache implements AutoCloseable {
             }
 
             if (shouldCacheFull) {
-                RedisCommands<String, String> commands = connectionManager.getSyncCommands(cacheExecutor);
+                RedisCommands<String, String> commands = connectionManager.getSyncCommands();
                 if (commands == null) {
                     return;
                 }
@@ -312,7 +291,7 @@ public class TrackCache implements AutoCloseable {
             }
 
             if (tracksToDecompose != null && !tracksToDecompose.isEmpty()) {
-                decomposer.decomposeAndCacheTrackNodes(tracksToDecompose, getTtlDuration("track"), loadType, cacheExecutor);
+                decomposer.decomposeAndCacheTrackNodes(tracksToDecompose, getTtlDuration("track"), loadType);
             }
         } catch (Exception e) {
             connectionManager.recordError("Error writing to Redis for identifier: " + identifier, e, stats);
@@ -332,7 +311,7 @@ public class TrackCache implements AutoCloseable {
     }
 
     public boolean evict(String identifier) {
-        return cleaner.evict(identifier, cacheExecutor);
+        return cleaner.evict(identifier);
     }
 
     public void schedulePurgeInvalidKeys() {
@@ -418,16 +397,12 @@ public class TrackCache implements AutoCloseable {
         }
     }
 
-    public long clearKeysMatching(String pattern) {
-        return cleaner.clearKeysMatching(pattern, cacheExecutor);
-    }
-
     public long purgeInvalidKeys() {
-        return cleaner.purgeInvalidKeys(cacheExecutor);
+        return cleaner.purgeInvalidKeys();
     }
 
     public long clearAll() {
-        return cleaner.clearAll(cacheExecutor);
+        return cleaner.clearAll();
     }
 
     public Map<String, Object> getStats() {
@@ -440,7 +415,7 @@ public class TrackCache implements AutoCloseable {
             } else {
                 if (stats.tryAcquireScanLock()) {
                     try {
-                        long totalKeys = cleaner.scanKeyCount(config.getRedis().getKeyPrefix() + "*", cacheExecutor);
+                        long totalKeys = cleaner.scanKeyCount(config.getRedis().getKeyPrefix() + "*");
                         if (totalKeys >= 0) {
                             stats.updateCachedKeyCount(totalKeys);
                             result.put("totalCachedKeys", totalKeys);
